@@ -40,10 +40,23 @@ If Okta ships an official TypeScript SCIM reference during our 10-day window, **
 - **License:** Apache 2.0
 - **Maintainer:** OktaDev (Okta Developer Relations) — officially Okta
 - **Stack:** TypeScript (91.9%) + React + Express + Prisma + Nx monorepo. **Matches our stack choice.**
-- **Scope:** 4-workshop curriculum; SCIM is workshop #2 of 4 ("Sync all your customer's users with SCIM"). The repo is a todo-list app with SCIM synchronization added on top.
-- **Critical disclaimer (verbatim):** *"This repository should not be used as a template for production ready code. It is intentionally simplistic and minimal so you can focus on the topics covered in the workshop content."*
-- **What this means for us:** study it for what Okta chose to teach (the patterns they selected to prioritize), NOT for the production shape of the code. The fact that they teach SCIM on top of Express + Nx suggests that's a sanctioned architecture. The specific implementation choices inside are pedagogical.
-- **Day 3 priority action:** clone the repo, locate the SCIM workshop app (likely under `apps/<name>`), read the SCIM handlers, compare to our take-vs-build plan. Document any disagreements with our plan in this file as an amendment.
+
+#### 🔴 AMENDMENT 2026-05-04: SCIM workshop code does NOT exist in this repo
+
+Full-history clone + search executed 2026-05-04 as part of Day 3 Step 1 (the SILVER LAW pass that was supposed to seed our skeleton). Findings:
+
+- The repo contains a base todo app (React frontend + Express API + Prisma + Nx). Stack matches ours. Good.
+- `grep -r "scim"` across all TypeScript/Markdown/JSON files returns **only the README**. No SCIM handlers, no SCIM routes, no SCIM tests anywhere in the tree.
+- `git log --all --oneline` shows the entire commit history: `base todo app` → `OIDC completed` → `Revert "OIDC completed"` → dep updates. Every substantive commit is non-SCIM. OIDC was briefly completed, then deliberately reverted. SCIM was never committed.
+- The README does mention SCIM — as one of four workshop topics — but the workshop itself is delivered separately (probably via Okta-hosted workshop sessions). **The repo is a teaching scaffold, not a reference implementation.** The workshop produces SCIM code interactively; none is committed.
+
+**What this means for our Day 3 plan:**
+
+- The §4 "Day 3 plan update" step "clone + read the SCIM workshop app" resolves to *"clone the repo, confirm no SCIM code exists, move on."* Done.
+- We cannot crib patterns Okta blessed because Okta didn't commit any. The curriculum naming (workshop #2: SCIM) tells us Okta considers SCIM a first-class teaching topic for enterprise readiness, but that's not actionable for implementation.
+- Confirmation: **there is no official Okta TypeScript SCIM reference in any public GitHub repo.** Our compose-and-hand-roll plan in §2+§3 stands unchanged as the only viable path.
+
+- **Original expectation (preserved for audit):** study the SCIM workshop app, document what patterns Okta blessed, amend take-vs-build plan if needed. Resolved: nothing to study; plan stands.
 
 ### 1.2 `oktadev/okta-scim-beta` — historical Python 2.7 reference
 
