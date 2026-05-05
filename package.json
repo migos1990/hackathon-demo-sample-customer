@@ -15,7 +15,10 @@
     "lint": "eslint . --ext .ts",
     "start:skeleton": "tsx skeleton/server.ts",
     "start:acme-hr": "tsx demo-targets/acme-hr-lite/start.ts",
-    "start:acme-hr-connector": "tsx connectors/acme-hr/start.ts"
+    "start:acme-hr-connector": "tsx connectors/acme-hr/start.ts",
+    "start:acme-hr-connector-bugged": "tsx connectors/acme-hr-bugged/start.ts",
+    "smoke": "tsx scripts/smoke/cli.ts --connector-url http://localhost:3002 --target-url http://localhost:4001",
+    "smoke:bugged": "tsx scripts/smoke/cli.ts --connector-url http://localhost:3003 --target-url http://localhost:4001"
   },
   "dependencies": {
     "canonicalize": "^3.0.0",
