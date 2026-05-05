@@ -46,10 +46,10 @@ fi
 echo "▶ secret scan — grepping staged content"
 STAGED=$(git diff --cached --name-only --diff-filter=ACM)
 if [ -n "$STAGED" ]; then
-    # Allow the sanitizer's own test fixtures and the PR template to contain the
-    # literal placeholder "<TOKEN>" — but flag anything that looks like a real
-    # bearer value (>=20 chars, base64-ish, after "Bearer ").
-    BAD=$(git diff --cached -- $STAGED | grep -E '^\+.*Bearer [A-Za-z0-9+/=_-]{20,}' || true)
+    DIFF=$(git diff --cached -- $STAGED)
+
+    # --- Bearer tokens (>=20 chars base64-ish after "Bearer ") ---
+    BAD=$(echo "$DIFF" | grep -E '^\+.*Bearer [A-Za-z0-9+/=_-]{20,}' || true)
     if [ -n "$BAD" ]; then
         # Exclude obvious fixture placeholders
         BAD=$(echo "$BAD" | grep -v 'Bearer <TOKEN>' | grep -v 'Bearer real-token-12345' || true)
@@ -58,9 +58,60 @@ if [ -n "$STAGED" ]; then
             fail "Possible real bearer token in staged content. Redact with scripts/sanitize-payload.ts and re-stage."
         fi
     fi
-    # Also block .env content ever being staged
-    if echo "$STAGED" | grep -qE '(^|/)\.env($|\.)'; then
-        fail "Staged .env file. Secrets must never be committed — remove from stage."
+
+    # --- sk-* style API keys (Anthropic, OpenAI, LiteLLM, etc.) ---
+    # Format: "sk-" followed by >=20 chars of [A-Za-z0-9_-]. Excludes obvious
+    # placeholders (<paste-...>, <...>).
+    SK_BAD=$(echo "$DIFF" | grep -E '^\+.*\bsk-[A-Za-z0-9_-]{20,}' | grep -v '<paste' | grep -v '<your' | grep -v 'sk-XXX' || true)
+    if [ -n "$SK_BAD" ]; then
+        echo "$SK_BAD"
+        fail "Possible real sk-* API key in staged content. Move to .env and reference via process.env."
+    fi
+
+    # --- GitHub PATs (ghp_, gho_, ghu_, ghs_, ghr_ prefixes per GitHub docs) ---
+    GH_BAD=$(echo "$DIFF" | grep -E '^\+.*\bgh[pousr]_[A-Za-z0-9]{30,}' || true)
+    if [ -n "$GH_BAD" ]; then
+        echo "$GH_BAD"
+        fail "Possible GitHub token in staged content. Move to .env and reference via process.env.GITHUB_TOKEN."
+    fi
+
+    # --- Private keys (PEM block headers) ---
+    PEM_BAD=$(echo "$DIFF" | grep -E '^\+.*-----BEGIN [A-Z ]*PRIVATE KEY-----' || true)
+    if [ -n "$PEM_BAD" ]; then
+        echo "$PEM_BAD"
+        fail "PEM private key material in staged content. Never commit."
+    fi
+
+    # --- AWS access keys (AKIA, ASIA prefixes, 16 hex/alphanum) ---
+    AWS_BAD=$(echo "$DIFF" | grep -E '^\+.*\b(AKIA|ASIA)[0-9A-Z]{16}\b' || true)
+    if [ -n "$AWS_BAD" ]; then
+        echo "$AWS_BAD"
+        fail "Possible AWS access key ID in staged content."
+    fi
+
+    # --- Generic high-entropy hex blobs >= 64 chars (HMAC keys, large tokens) ---
+    # Skip: fixture files with obvious test hashes, the sign test, the manifest
+    # test, and .test.ts files which legitimately use 64-char fixture hashes.
+    HEX_BAD=$(echo "$DIFF" | grep -E '^\+.*["'"'"'][A-Fa-f0-9]{64,}["'"'"']' || true)
+    if [ -n "$HEX_BAD" ]; then
+        # Exclude test files + fixture dir + docs using known-fake hashes
+        HEX_FILES=$(echo "$STAGED" | grep -E '\.(test\.ts|md|json)$' || true)
+        HEX_NONTEST=$(git diff --cached -- $(echo "$STAGED" | grep -v -E '\.(test\.ts|md|json)$' | tr '\n' ' ') 2>/dev/null \
+            | grep -E '^\+.*["'"'"'][A-Fa-f0-9]{64,}["'"'"']' || true)
+        if [ -n "$HEX_NONTEST" ]; then
+            echo "$HEX_NONTEST"
+            fail "Possible hex-encoded secret (64+ chars) in non-test staged content. Move to .env."
+        fi
+    fi
+
+    # --- Also block .env content ever being staged ---
+    if echo "$STAGED" | grep -qE '(^|/)\.env($|\.[^e]|\.e[^x])'; then
+        # Allow .env.example but block .env / .env.local / .env.prod / etc.
+        STAGED_ENV=$(echo "$STAGED" | grep -E '(^|/)\.env($|\.[^e]|\.e[^x])' | grep -v '\.env\.example' || true)
+        if [ -n "$STAGED_ENV" ]; then
+            echo "$STAGED_ENV"
+            fail "Staged .env file. Secrets must never be committed — remove from stage."
+        fi
     fi
 fi
 pass "secret scan — clean"
