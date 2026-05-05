@@ -1,0 +1,16 @@
+PATCH https://demo-customer-a.oktapreview.com/scim/v2/Users/00u00000000000000001 HTTP/1.1
+Content-Type: application/scim+json
+Authorization: Bearer <TOKEN>
+Accept: application/scim+json
+
+{
+  "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+  "Operations": [
+    {
+      "op": "replace",
+      "value": {
+        "active": false
+      }
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+HTTP/1.1 201 Created
+Content-Type: application/scim+json
+
+{
+  "schemas": ["urn:ietf:params:scim:schemas:core:2.0:User"],
+  "id": "00u00000000000000001",
+  "userName": "user-001@example.com",
+  "name": {
+    "givenName": "User",
+    "familyName": "One"
+  },
+  "emails": [
+    {
+      "primary": true,
+      "value": "user-001@example.com",
+      "type": "work"
+    }
+  ],
+  "displayName": "User One",
+  "locale": "en-US",
+  "externalId": "00000000-0000-0000-0000-000000000001",
+  "groups": [],
+  "active": true,
+  "meta": {
+    "resourceType": "User",
+    "created": "2026-05-04T00:00:00Z",
+    "lastModified": "2026-05-04T00:00:00Z",
+    "location": "https://scim.example.com/scim/v2/Users/00u00000000000000001"
+  }
+}

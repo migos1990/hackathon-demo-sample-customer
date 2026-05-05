@@ -1,0 +1,3 @@
+GET https://demo-customer-a.oktapreview.com/scim/v2/Users?filter=userName%20eq%20%22user-001%40example.com%22 HTTP/1.1
+Authorization: Bearer <TOKEN>
+Accept: application/scim+json

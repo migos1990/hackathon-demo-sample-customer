@@ -1,0 +1,23 @@
+{
+  "name": "scim-harness",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Pre-built baseline for Okta SCIM connector generation (pre-hackathon harness)",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "sanitize": "tsx scripts/sanitize-payload.ts",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint . --ext .ts"
+  },
+  "devDependencies": {
+    "@types/node": "^20.12.0",
+    "tsx": "^4.7.0",
+    "typescript": "^5.4.0",
+    "vitest": "^1.6.0"
+  }
+}
