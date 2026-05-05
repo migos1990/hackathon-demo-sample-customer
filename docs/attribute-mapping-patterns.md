@@ -1,6 +1,6 @@
 # Attribute Mapping Pattern Library
 
-**Status:** v0 — index + skeletons. Full worked examples land on **Day 7** of the pre-hackathon plan.
+**Status:** v0.5 — Pattern 1 (LDAP) filled with a worked example + fixtures + edge cases via the `connectors/acme-hr/` reference connector. Patterns 2 (Workday) and 3 (Custom-DB) still skeleton-only; Day 7 completes them.
 
 **Purpose:** each pattern documents a common source-schema shape and how to map it cleanly to SCIM 2.0 core + enterprise extension. The agent picks the closest pattern to the customer's `user_model` field in the ticket template and adapts.
 
@@ -8,7 +8,7 @@
 
 | # | Source shape | When to use | Status |
 |---|--------------|-------------|--------|
-| 1 | LDAP-shaped (`dn`, `cn`, `sn`, `mail`, `memberOf`) | Customer exposes a user directory or LDAP-style API | Skeleton only |
+| 1 | LDAP-shaped (`dn`, `cn`, `sn`, `mail`, `memberOf`) | Customer exposes a user directory or LDAP-style API | ✅ Filled — [`patterns/01-ldap.md`](patterns/01-ldap.md) |
 | 2 | Workday-shaped (`Worker_ID`, `Work_Email`, `Legal_Name/First`, `Legal_Name/Last`, `Primary_Work_Location`) | Customer sources users from a HRIS with Workday-family shape | Skeleton only |
 | 3 | Custom-DB-shaped (arbitrary source schema) | Everything else; agent emits a bespoke mapping config | Skeleton only (stretch on Day 7) |
 
