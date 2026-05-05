@@ -22,7 +22,7 @@
 |---|---|---|---|---|
 | 1 | 0:00-0:06 | Linear UI with a filed ticket, title visible | "When a customer wants SCIM for a custom app with no OOTB connector, Pro Serve historically burns five senior-consultant days per build — and still misses dialect quirks." | 25 |
 | 2 | 0:06-0:13 | Ticket YAML front-matter close-up, cursor on `customer_app_name` | "This is a ticket for AcmeHR — our customer analog — filed from the template." | 14 |
-| 3 | 0:13-0:20 | Agent terminal scroll (real capture, real speed) | "Agent picks it up. Reads `docs/okta-dialect.md`. Writes the connector. 62 tests green." | 14 |
+| 3 | 0:13-0:20 | Agent terminal scroll (REAL live-probe output — `examples/generated-connectors/bigcorp-hr/`) | "Agent picks it up. Reads `docs/okta-dialect.md`. Writes the connector. All tests green." | 14 |
 | 4 | 0:20-0:26 | Split: left `vitest run` green, right OIN SPEC runner output all green | "Runs the 12 Okta OIN SPEC tests against our staging tenant. All green." | 13 |
 | 5 | 0:26-0:33 | AcmeHR-lite admin UI, users populating row by row | "Users land in AcmeHR. End to end, no human between the ticket and the tenant." | 15 |
 | 6 | 0:33-0:42 | Second ticket filed, diff showing missing `active:false` handler | "Now the part that earned this submission its track. Second ticket — this one has a bug. Missing `active:false` handler." | 21 |
@@ -99,12 +99,31 @@ If invited to a Watch Party, the live presentation reuses the same visuals with 
 5. **4:00-5:00 — Q&A prep** — leave buffer for questions.
 
 **Q&A brace-yourself list** (questions I'd ask as a judge):
-- "What happens when the agent hallucinates an Okta API field?" → harness fails at test-time; `docs/okta-dialect.md` is the ground-truth agent context; SILVER LAW gate.
-- "How does customer data never enter the repo?" → `scripts/sanitize-payload.ts` + pre-commit secret scan; synthetic fixtures only; demo tenants are ours.
-- "What stops a partner from promoting to prod alone?" → two-of-two signature on the Promotion Manifest; branch-protection rule on prod apply would enforce in post-hackathon wire-up.
-- "Is the OIN-12/12 claim measured against Okta's actual SPEC Test suite?" → replay suite against fixtures equivalent to the published SPEC Test JSON; live tenant run against staging during the demo.
-- "What's the blast radius if the agent pushes a bad connector?" → pre-prod only; prod gate refuses; worst case is a broken staging deploy we roll back with a revert PR.
-- "What's NOT built?" → see `submission-draft.md` Implemented vs Simulated section. Be direct; judges respect honesty more than bluster.
+
+- **"What happens when the agent hallucinates an Okta API field?"**
+  Three things catch it, in order:
+  (1) agent output is parsed as structured blocks — invented paths that start with `..` or `/` are rejected at parse boundary (`scripts/orchestrator/agent/output-parser.ts`).
+  (2) pre-commit DIALECT-CITED lint refuses files that reference Okta-specific behavior without citing `docs/okta-dialect.md` or an RFC URL — hallucinating a field without a source fails this.
+  (3) OIN SPEC Tests run against the deployed pre-prod; incorrect field names surface as 4xx responses that the test suite asserts against. If all three somehow pass, the smoke runner's step 3 reads the target directly and catches state divergence (`scripts/smoke/run-smoke.ts`).
+  The story is "we don't trust the agent, we trust the gates the agent can't bypass" — `docs/connector-laws.md` enumerates the 10 laws every generated connector must satisfy.
+
+- **"How does customer data never enter the repo?"**
+  `scripts/sanitize-payload.ts` is the sanctioned PII redactor. Pre-commit secret scan (`ghp_*`, `sk-*`, `AKIA*`, PEM blocks, hex-64+ blobs) blocks credential literals (`.githooks/pre-commit:45-140`). Fixtures use `example.com`. Demo tenants are ours. Customer data would fail the gate before commit.
+
+- **"What stops a partner from promoting to prod alone?"**
+  Two-of-two signature on the Promotion Manifest (`docs/promotion-flow.md` §7 — partner signing key + Okta PS co-sign). Enforcement is designed, not wired; branch-protection rule on prod-apply workflow is the post-hackathon delivery.
+
+- **"Is the OIN-12/12 claim measured against Okta's actual SPEC Test suite?"**
+  Replay-test rig covers the equivalent flows offline (`replay-test/`). Live probe against a real Okta staging tenant is planned for Day 4-5 post-demo-tenant provisioning; the `preprod_verify.oin_spec_tests_passed: "12/12"` field in the signed manifest reflects actual green CI — if the suite isn't 12/12 `buildManifest` refuses (`scripts/promotion-manifest/build.ts:assertVerifyPassed`).
+
+- **"What's the blast radius if the agent pushes a bad connector?"**
+  Pre-prod only. Prod gate refuses on any pre-prod red — `buildManifest` throws, no signed manifest, no prod apply. The gate-refusal demo beat (beats 6-8 of this script) IS the live proof of this: the bugged connector at `connectors/acme-hr-bugged/` lies at the SCIM boundary; the smoke runner's target-verify step catches the divergence; promotion refuses. Exit code 1 on screen.
+
+- **"What's NOT built?"**
+  See `docs/submission-draft.md` Implemented vs Simulated section. Short list: live Okta tenant OIN run (Day 4-5), two-of-two partner signature enforcement (branch protection), GitHub multi-file atomic commits (using createOrUpdateFileContents per-file today), Terraform scaffold (`docs/connector-laws.md` Law 5 still red).
+
+- **"Show me real agent output."**
+  `examples/generated-connectors/bigcorp-hr/` — 8 files, 1670 lines, 60KB of TypeScript generated by sonnet-4-6 in 292 seconds from a synthetic LDAP-pattern ticket. README in that directory has the reproduction command.
 
 ---
 
@@ -112,4 +131,24 @@ If invited to a Watch Party, the live presentation reuses the same visuals with 
 
 1. **Verify Watch Party format** — 5-min limit is my guess; check the schedule doc. If shorter/longer, the live walkthrough timings adjust.
 2. **Music bed decision** — defer until first VO pass is recorded. Listen, decide.
-3. **AcmeHR-lite admin UI polish** — Day 4 build target. If UI is too bare, the shot 5 provisioning payoff reads weak. Minimum: user list table, search, "last updated" column.
+3. **Shot 3 b-roll** — use real captured terminal output from a live agent run (2026-05-05 evidence in `examples/generated-connectors/bigcorp-hr/`). Prior plan said "agent scroll, real capture"; now we have the real capture to cut from.
+
+## What's real vs what's staged (updated 2026-05-05)
+
+**Real working software shipped before demo day:**
+- Harness (skeleton + 2 connectors + bugged variant): 394 tests, tsc clean, 14 meta-laws + 10 connector-laws gated at pre-commit
+- Orchestrator end-to-end: Linear poll → ticket validate → LLM generate → GitHub PR → CI watch → smoke → signed manifest → Linear comment (all tested with fakes; 3 modules live-verified against real services)
+- Agent: **live-verified** producing 8 files / 60KB in 292s against Okta's LiteLLM proxy with sonnet-4-6. Evidence captured at `examples/generated-connectors/bigcorp-hr/`.
+- Signed Promotion Manifest: HMAC-SHA256 over RFC 8785 canonical JSON, key rotation window, tampering detection. Sign/verify round-trip tested.
+- Gate-refusal flow: bugged connector at `connectors/acme-hr-bugged/` proves the smoke runner catches connector-lied-about-state at step 3. Exit code 1, target_error text in the JSON report.
+
+**Staged for weekend (dependent on credential arrival):**
+- Linear API key in `.env` → live orchestrator poll against real tickets
+- GitHub PAT in `.env` → live PR creation
+- Two Okta demo tenants via `/demo-provision` → live OIN SPEC run on real tenant instead of replay-rig
+
+**Deferred post-hackathon:**
+- Terraform scaffold (Law 5 still red)
+- Two-of-two signature enforcement via branch protection
+- Multi-file atomic commits (Git Data API tree+commit)
+- GitHub App replacing PAT for partner isolation
