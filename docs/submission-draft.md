@@ -13,17 +13,18 @@
 
 ## Problem to solve
 
-Pro Serve builds a bespoke SCIM connector roughly once a week — five senior-consultant days each. Junior consultants miss Okta-dialect quirks (PATCH `active:false` vs DELETE, case-sensitive `userName` for OIN step 16, lifecycle-policy branching) that only surface during Okta's OIN SPEC Test suite, costing rework and customer trust. No shared harness, no pre-prod test gate, no machine-readable ticket contract. Every engagement starts from scratch.
+When a customer has a custom in-house or niche third-party app without an out-of-the-box Okta OIN connector and asks Pro Serve to onboard SCIM provisioning quickly, the engagement historically takes a senior consultant ~5 days because so much can go wrong silently: PATCH `active:false` vs DELETE semantics, case-sensitive `userName` (OIN step 16), lifecycle-policy branching, attribute-mapping edge cases, idempotent Terraform, credential hygiene. Junior consultants miss these quirks until Okta's OIN SPEC Tests fail in UAT — costing rework, schedule slip, and customer trust. There is no shared harness, no pre-prod verify gate, no machine-readable ticket contract, and no cryptographic audit trail for what actually shipped to the customer's prod tenant.
 
 ## Our solution
 
-**Symphony-for-Okta Pro Serve** — a ticket-driven pipeline where an AI agent generates working SCIM connectors from Linear tickets. Three parts:
+**Symphony-for-Okta Pro Serve** — a ticket-driven pipeline where an AI agent generates a working SCIM connector for a customer's custom app from a Linear ticket, with the rigor of senior-consultant review encoded once as harness gates instead of re-learned every engagement. Four parts:
 
-1. **Hardened TypeScript harness** with a reusable SCIM skeleton that passes all 12 OIN SPEC Tests out of the box, plus Okta-dialect quirks encoded as agent context.
-2. **Pre-prod → prod promotion gate** — tickets land in pre-prod against a demo tenant, pass tests, earn a signed Promotion Manifest (HMAC-SHA256, RFC 8785 canonical JSON), then human-approved deploy to prod.
-3. **Partner-ready** — the harness is forkable to Okta implementation partners, with two-of-two signature required for prod promotion, so partners accelerate without touching customer prod unilaterally.
+1. **Hardened TypeScript harness** — reusable SCIM skeleton that already passes all 12 Okta OIN SPEC Tests, plus `docs/okta-dialect.md` capturing the dialect quirks that bite in production, fed to the agent as grounded context.
+2. **Two layers of enforced laws.** 14 meta-laws govern how we BUILD the harness (TDD, official-doc citation, blast-radius isolation). 10 connector-laws govern what every GENERATED connector OUTPUT must satisfy (TEST-GREEN, OIN-12/12, DIALECT-CITED, SECRETS-OUT, IDEMPOTENT-TF, SMOKE-GREEN, REVERSIBLE, OBSERVABLE, RUNBOOK-COMPLETE, AUDIT-TRAIL), each mechanically enforced by a harness gate. Trust doesn't come from trusting the agent — it comes from gates the agent cannot bypass.
+3. **Pre-prod → prod promotion gate with signed manifest** — ticket lands in pre-prod against a demo tenant, passes verify gates, earns a signed Promotion Manifest (HMAC-SHA256 over RFC 8785 canonical JSON) pinning commit + fixtures hash + verify results + approver, then human-approved deploy to prod. "We tested it in staging" becomes a cryptographic assertion.
+4. **Partner-ready** — same harness forkable to Okta implementation partners, with two-of-two signature required for prod promotion so partners accelerate without touching customer prod unilaterally.
 
-Ticket in, production-grade SCIM connector out, with blast-radius controls the whole way.
+Ticket in → production-grade SCIM connector out, faster than hand-rolled and with trust properties a hand-rolled connector rarely has.
 
 ## Team members we're looking for
 

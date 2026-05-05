@@ -1,8 +1,21 @@
 # Agent Harness — SCIM Pipeline
 
-This file is the single source of truth for how work happens in this repo. Agents (human and AI) MUST read this before editing. 14 laws gate the work.
+This file is the single source of truth for how work happens in this repo. Agents (human and AI) MUST read this before editing.
 
-## The 14 Laws
+## Two Layers of Laws
+
+Trust in this system comes from TWO parallel, compounding rule sets:
+
+| Layer | Doc | Applies to | Enforced at |
+|---|---|---|---|
+| **Meta-laws (14)** | this file, below | Engineers BUILDING the harness | Development time — pre-commit hooks, code review, PR gates |
+| **Connector laws (10)** | `docs/connector-laws.md` | OUTPUT every generated connector must satisfy | Generation + promotion time — CI, pre-prod verify gate, signed Promotion Manifest refusal |
+
+The meta-laws make the harness itself trustworthy. The connector laws make the output of the harness trustworthy. A customer accepting an agent-generated SCIM connector is accepting both layers simultaneously — trust comes from mechanical gate enforcement, not from trusting any individual agent's output.
+
+**If you are adding something new to the harness, both sets of laws apply.** Read `docs/connector-laws.md` before writing code that influences what generated connectors look like.
+
+## The 14 Meta-Laws
 
 ### 1. IRON LAW — TDD mandatory
 Every code change ships with a test, observed to fail before the implementation lands.

@@ -20,7 +20,7 @@
 
 | # | Time | Visual (shot) | VO (spoken) | Word count |
 |---|---|---|---|---|
-| 1 | 0:00-0:06 | Linear UI with a filed ticket, title visible | "Pro Serve builds a SCIM connector roughly every week. Each one takes a senior consultant about five days." | 18 |
+| 1 | 0:00-0:06 | Linear UI with a filed ticket, title visible | "When a customer wants SCIM for a custom app with no OOTB connector, Pro Serve historically burns five senior-consultant days per build — and still misses dialect quirks." | 25 |
 | 2 | 0:06-0:13 | Ticket YAML front-matter close-up, cursor on `customer_app_name` | "This is a ticket for AcmeHR — our customer analog — filed from the template." | 14 |
 | 3 | 0:13-0:20 | Agent terminal scroll (real capture, real speed) | "Agent picks it up. Reads `docs/okta-dialect.md`. Writes the connector. 62 tests green." | 14 |
 | 4 | 0:20-0:26 | Split: left `vitest run` green, right OIN SPEC runner output all green | "Runs the 12 Okta OIN SPEC tests against our staging tenant. All green." | 13 |
@@ -31,7 +31,7 @@
 | 9 | 0:53-1:02 | Signed Promotion Manifest rendering — JSON with HMAC signature, commit SHA, fixtures hash | "Here's what ships: a signed Promotion Manifest. Commit, fixtures hash, pre-prod verify results, approver, signed with our rotating HMAC key." | 22 |
 | 10 | 1:02-1:11 | Human clicks Promote → terraform apply → prod AcmeHR admin panel | "Reviewer clicks promote. Signature verifies. Prod deploys the same code that just passed staging. Provisioning live." | 17 |
 | 11 | 1:11-1:27 | Partner slide: two repo forks side-by-side, Promotion Manifest with two signatures | "Same harness, forked by an implementation partner. Pre-prod write, prod deny. Prod promotion requires two signatures — theirs plus ours. Partners accelerate. Okta PS keeps the gate." | 29 |
-| closer | 1:27-1:48 | Beauty shot: ticket → manifest → tenant admin UI, then title card | "Tribal knowledge captured as tests and docs. Agent-generated connectors provably equivalent to what our best consultants write. Minutes instead of days, with a gate that refuses when it should. Symphony-for-Okta Pro Serve. Agentic Internal Tools." | 40 |
+| closer | 1:27-1:48 | Beauty shot: ticket → manifest → tenant admin UI, then title card | "Ten connector-laws — TEST-GREEN, OIN-12/12, DIALECT-CITED, AUDIT-TRAIL — enforced by gates the agent can't bypass. Custom-app SCIM onboarding in minutes instead of days, with a trust chain customers can read. Symphony-for-Okta Pro Serve. Agentic Internal Tools." | 42 |
 
 **Total VO: ~228 words, ≈1:48 at 127 wpm** (natural conversational pace). 12-second buffer absorbs pacing variance.
 
