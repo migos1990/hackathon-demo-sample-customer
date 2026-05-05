@@ -1,0 +1,146 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://ps-scim-pipeline/ticket-templates/new-scim-connector.schema.json",
+  "title": "New SCIM Connector Ticket Template",
+  "description": "Machine-parseable contract for the YAML front-matter of a 'New SCIM Connector' Linear ticket. The orchestrator parses the ticket body, extracts the YAML block, validates against this schema before dispatching the agent. Schema violations = hard reject with a comment on the ticket.",
+  "type": "object",
+  "required": [
+    "customer_app_name",
+    "customer_slug",
+    "auth_method",
+    "auth_credential_location",
+    "auth_credential_env_var",
+    "base_url",
+    "environments",
+    "user_model_source",
+    "required_ops",
+    "lifecycle_policy",
+    "target_okta_tenant",
+    "terraform_workspace"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "customer_app_name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "description": "Display name of the customer's application (e.g. 'AcmeHR')."
+    },
+    "customer_slug": {
+      "type": "string",
+      "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+      "minLength": 2,
+      "maxLength": 40,
+      "description": "Lowercase hyphenated slug; used in repo paths, file names, and branch names."
+    },
+    "auth_method": {
+      "type": "string",
+      "enum": ["bearer", "basic", "oauth_cc"],
+      "description": "How the generated SCIM server authenticates to the customer's API. 'oauth_cc' = OAuth 2.0 client credentials grant."
+    },
+    "auth_credential_location": {
+      "type": "string",
+      "enum": ["env", "secret_manager", "vault"],
+      "description": "Where the generated server reads its credential from at boot."
+    },
+    "auth_credential_env_var": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Z0-9_]*$",
+      "description": "Env var name the server reads the credential from. Must be UPPER_SNAKE_CASE."
+    },
+    "base_url": {
+      "type": "string",
+      "format": "uri",
+      "pattern": "^https://",
+      "description": "Canonical base URL for the customer's API. Must be https://."
+    },
+    "environments": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string",
+        "format": "uri",
+        "pattern": "^https://"
+      },
+      "description": "Map of environment name to base URL. Typical: dev/staging/prod."
+    },
+    "user_model_source": {
+      "type": "string",
+      "enum": ["ldap", "workday", "custom_db"],
+      "description": "Which pattern from docs/attribute-mapping-patterns.md applies. 'custom_db' means the agent generates a bespoke mapping."
+    },
+    "user_model_sample_url": {
+      "type": "string",
+      "format": "uri",
+      "description": "Link to source API docs or a sample user response. Optional if the ticket body pastes a full sample."
+    },
+    "required_ops": {
+      "type": "object",
+      "required": [
+        "users_create",
+        "users_read",
+        "users_update_patch",
+        "users_delete",
+        "users_list",
+        "users_filter"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "users_create": {"type": "boolean"},
+        "users_read": {"type": "boolean"},
+        "users_update_patch": {"type": "boolean"},
+        "users_delete": {"type": "boolean"},
+        "users_list": {"type": "boolean"},
+        "users_filter": {"type": "boolean"},
+        "groups": {"type": "boolean", "default": false},
+        "group_push": {"type": "boolean", "default": false},
+        "group_members_patch": {"type": "boolean", "default": false}
+      },
+      "description": "Which SCIM operations the generated server MUST implement. Groups-family fields default to false; set true when the customer uses group push."
+    },
+    "lifecycle_policy": {
+      "type": "string",
+      "enum": ["hard_delete", "soft_delete", "archive"],
+      "description": "What 'deprovision' means for this customer. Drives both DELETE handler and PATCH-active-false handler behavior."
+    },
+    "deactivation_attribute_clearing": {
+      "type": "array",
+      "items": {"type": "string"},
+      "default": [],
+      "description": "SCIM attribute paths to clear on active=false. Empty = retain all."
+    },
+    "compliance": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pii_retention_days": {
+          "type": ["integer", "null"],
+          "minimum": 0,
+          "description": "Days to retain PII. null = indefinite."
+        },
+        "audit_retention_required": {
+          "type": "boolean",
+          "default": false,
+          "description": "If true, server maintains a separate immutable audit log."
+        },
+        "region_restrictions": {
+          "type": "array",
+          "items": {"type": "string"},
+          "default": []
+        },
+        "customer_data_residency": {
+          "type": ["string", "null"]
+        }
+      }
+    },
+    "target_okta_tenant": {
+      "type": "string",
+      "pattern": "^[a-z0-9-]+\\.(oktapreview|okta)\\.com$",
+      "description": "Target Okta tenant URL. For hackathon: one of the two demo tenants. Post-hackathon: real customer tenant."
+    },
+    "terraform_workspace": {
+      "type": "string",
+      "enum": ["staging", "prod"],
+      "description": "Terraform workspace. Enforces staging→prod promotion gate (BLAST-RADIUS LAW)."
+    }
+  }
+}
