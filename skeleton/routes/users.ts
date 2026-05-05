@@ -6,11 +6,13 @@
  * module-level state.
  */
 import { Router, type Request, type Response, type NextFunction } from "express";
+import type { ScimPatchOperation } from "scim-patch";
 import { UserNameConflictError, type UserStore } from "../store/user-store.js";
 import { scimError } from "../middleware/error-envelope.js";
 import type { ScimUser } from "../types.js";
 
 const CORE_USER_SCHEMA = "urn:ietf:params:scim:schemas:core:2.0:User";
+const PATCH_OP_SCHEMA = "urn:ietf:params:scim:api:messages:2.0:PatchOp";
 
 /**
  * Maximum page size we will honor regardless of `count` query param.
@@ -89,6 +91,34 @@ export function usersRouter(store: UserStore): Router {
     }
   });
 
+  // PATCH — partial update per RFC 7644 §3.5.2 + okta-dialect.md §1.
+  // Okta drives deactivation through this endpoint via `active: false`.
+  router.patch("/:id", async (req: Request, res: Response, next: NextFunction) => {
+    try {
+      const validation = validatePatchBody(req.body);
+      if (!validation.ok) {
+        return res.status(400).json(scimError(400, validation.detail, "invalidSyntax"));
+      }
+
+      try {
+        const updated = await store.patch(req.params["id"]!, validation.operations);
+        if (updated === null) {
+          return res.status(404).json(scimError(404, `User not found: ${req.params["id"]}`, "noTarget"));
+        }
+        // okta-dialect.md §1: Okta expects 200 + full resource body on PATCH,
+        // NOT 204 No Content. RFC permits either; we pick the Okta-compatible one.
+        return res.status(200).json(updated);
+      } catch (err) {
+        if (err instanceof UserNameConflictError) {
+          return res.status(409).json(scimError(409, err.message, "uniqueness"));
+        }
+        throw err;
+      }
+    } catch (err) {
+      return next(err);
+    }
+  });
+
   return router;
 }
 
@@ -145,4 +175,40 @@ function validateUserBody(body: unknown): ValidationResult {
   // and extra unknown fields (schema-extension namespaces) pass through
   // for the customer-mapping layer to consume.
   return { ok: true, input: b as unknown as Omit<ScimUser, "id" | "meta"> };
+}
+
+type PatchValidationResult =
+  | { ok: true; operations: ScimPatchOperation[] }
+  | { ok: false; detail: string };
+
+/**
+ * Validate a PATCH body per RFC 7644 §3.5.2. Must contain:
+ *   - schemas array including urn:ietf:params:scim:api:messages:2.0:PatchOp
+ *   - Operations array (non-empty)
+ *
+ * Individual op shape validation is delegated to the scim-patch library
+ * (see docs/integrations/scim-patch.md — patchBodyValidation). This
+ * function just gates the envelope.
+ */
+function validatePatchBody(body: unknown): PatchValidationResult {
+  if (typeof body !== "object" || body === null) {
+    return { ok: false, detail: "Request body must be a JSON object" };
+  }
+  const b = body as Record<string, unknown>;
+
+  if (!Array.isArray(b["schemas"]) || !b["schemas"].includes(PATCH_OP_SCHEMA)) {
+    return {
+      ok: false,
+      detail: `PATCH body must include schemas array containing ${PATCH_OP_SCHEMA}`,
+    };
+  }
+
+  if (!Array.isArray(b["Operations"]) || b["Operations"].length === 0) {
+    return {
+      ok: false,
+      detail: "PATCH body must include a non-empty Operations array",
+    };
+  }
+
+  return { ok: true, operations: b["Operations"] as ScimPatchOperation[] };
 }

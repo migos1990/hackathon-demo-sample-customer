@@ -118,4 +118,70 @@ describe("InMemoryUserStore", () => {
       expect(result.total).toBe(0); // case-sensitive match — no hit
     });
   });
+
+  describe("patch", () => {
+    it("applies a single replace op and updates meta.lastModified", async () => {
+      const u = await store.create({
+        schemas: ["urn:ietf:params:scim:schemas:core:2.0:User"],
+        userName: "p@example.com",
+        active: true,
+      });
+      // Artificial delay so meta.lastModified can change on our second-resolution timestamps.
+      await new Promise((r) => setTimeout(r, 1100));
+
+      const updated = await store.patch(u.id, [
+        { op: "replace", value: { active: false } },
+      ]);
+
+      expect(updated).not.toBeNull();
+      if (updated === null) throw new Error("unreachable — expect above guards");
+      expect(updated.active).toBe(false);
+      expect(updated.userName).toBe("p@example.com"); // untouched fields preserved
+      expect(updated.meta.lastModified).not.toBe(u.meta.lastModified);
+    });
+
+    it("returns null when patching a nonexistent id (caller maps to 404)", async () => {
+      const result = await store.patch("00u00000000000000999", [
+        { op: "replace", value: { active: false } },
+      ]);
+      expect(result).toBeNull();
+    });
+
+    it("applies multi-op PATCH atomically per RFC 7644 §3.5.2 + okta-dialect.md §1", async () => {
+      const u = await store.create({
+        schemas: ["urn:ietf:params:scim:schemas:core:2.0:User"],
+        userName: "m@example.com",
+        active: true,
+        name: { givenName: "Old", familyName: "Name" },
+      });
+
+      const updated = await store.patch(u.id, [
+        { op: "replace", value: { active: false } },
+        { op: "replace", path: "name.givenName", value: "New" },
+      ]);
+
+      expect(updated).not.toBeNull();
+      if (updated === null) throw new Error("unreachable — expect above guards");
+      expect(updated.active).toBe(false);
+      expect(updated.name?.givenName).toBe("New");
+      expect(updated.name?.familyName).toBe("Name");
+    });
+
+    it("rejects PATCH that would violate userName uniqueness (caller maps to 409 uniqueness)", async () => {
+      await store.create({
+        schemas: ["urn:ietf:params:scim:schemas:core:2.0:User"],
+        userName: "a@example.com",
+        active: true,
+      });
+      const b = await store.create({
+        schemas: ["urn:ietf:params:scim:schemas:core:2.0:User"],
+        userName: "b@example.com",
+        active: true,
+      });
+
+      await expect(
+        store.patch(b.id, [{ op: "replace", path: "userName", value: "a@example.com" }]),
+      ).rejects.toThrow(/userName/i);
+    });
+  });
 });

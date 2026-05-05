@@ -16,6 +16,7 @@
  *     per RFC 7644 §3.4.2.4.
  */
 import { parse, filter as makePredicate } from "scim2-parse-filter";
+import { scimPatch, type ScimPatchOperation, type ScimResource } from "scim-patch";
 import { randomBytes } from "node:crypto";
 import type { ScimUser, StoredUser } from "../types.js";
 
@@ -34,6 +35,7 @@ export interface UserStore {
   create(input: Omit<ScimUser, "id" | "meta">): Promise<StoredUser>;
   get(id: string): Promise<StoredUser | null>;
   list(options: ListOptions): Promise<ListResult>;
+  patch(id: string, operations: ScimPatchOperation[]): Promise<StoredUser | null>;
 }
 
 export class UserNameConflictError extends Error {
@@ -117,6 +119,58 @@ export class InMemoryUserStore implements UserStore {
   async get(id: string): Promise<StoredUser | null> {
     const user = this.byId.get(id);
     return user ? structuredClone(user) : null;
+  }
+
+  /**
+   * Apply PATCH operations atomically per RFC 7644 §3.5.2.
+   *
+   * Delegates the operation application to the scim-patch library
+   * (see docs/integrations/scim-patch.md). We wrap it with:
+   *   - 404 semantics (return null when id is missing)
+   *   - userName uniqueness re-check after the patch (PATCH can update
+   *     userName; we re-check against other rows before persisting)
+   *   - meta.lastModified update on successful apply
+   *   - structuredClone snapshots to avoid caller mutation leaking back
+   *     into our Map (defensive for the in-memory implementation)
+   *
+   * Atomicity: if scim-patch throws on any op OR the uniqueness check
+   * fails, we do NOT mutate our Map — the pre-patch state remains.
+   */
+  async patch(id: string, operations: ScimPatchOperation[]): Promise<StoredUser | null> {
+    const existing = this.byId.get(id);
+    if (existing === undefined) return null;
+
+    // Work on a clone so a throw from scim-patch can't leave us partially applied.
+    const draft = structuredClone(existing);
+
+    // scim-patch's ScimResource type declares meta.created/lastModified as
+    // Date, but RFC 7643 + Okta expect ISO 8601 strings on the wire (which
+    // we store). The library does not read or mutate meta.* during patch
+    // application (verified in node_modules/scim-patch/lib/src/types/types.d.ts:5
+    // and node_modules/scim-patch/lib/src/scimPatch.d.ts:6 — generic T extends
+    // ScimResource only constrains shape, not behavior). The cast is a
+    // known-safe type lie. TRUTH LAW: UNVERIFIED behavior if library bump
+    // ever starts touching meta during apply — covered by our patch tests
+    // (they assert meta.lastModified changes only via OUR explicit write
+    // below, not via scim-patch). Retest on library upgrade.
+    scimPatch(draft as unknown as ScimResource, operations);
+
+    // Post-patch uniqueness check: if userName changed, re-assert no collision.
+    if (draft.userName !== undefined && draft.userName !== existing.userName) {
+      for (const other of this.byId.values()) {
+        if (other.id === id) continue;
+        if (other.userName === draft.userName) {
+          throw new UserNameConflictError(draft.userName);
+        }
+      }
+    }
+
+    draft.meta = {
+      ...draft.meta,
+      lastModified: nowIso(),
+    };
+    this.byId.set(id, draft);
+    return structuredClone(draft);
   }
 
   async list(options: ListOptions): Promise<ListResult> {

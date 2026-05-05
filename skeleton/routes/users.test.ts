@@ -222,3 +222,125 @@ describe("POST /scim/v2/Users (create)", () => {
     expect(res.body.scimType).toBe("invalidSyntax");
   });
 });
+
+describe("PATCH /scim/v2/Users/:id (deactivation, attribute update, multi-op)", () => {
+  let store: InMemoryUserStore;
+  let app: ReturnType<typeof createApp>;
+
+  beforeEach(() => {
+    store = new InMemoryUserStore();
+    app = createApp({ userStore: store });
+  });
+
+  const PATCH_ENVELOPE_SCHEMA = "urn:ietf:params:scim:api:messages:2.0:PatchOp";
+
+  it("returns 200 + full resource body on deactivation PATCH (okta-dialect.md §1 anti-pattern: NOT 204)", async () => {
+    const u = await store.create({
+      schemas: ["urn:ietf:params:scim:schemas:core:2.0:User"],
+      userName: "d@example.com",
+      active: true,
+    });
+
+    const res = await request(app)
+      .patch(`/scim/v2/Users/${u.id}`)
+      .send({
+        schemas: [PATCH_ENVELOPE_SCHEMA],
+        Operations: [{ op: "replace", value: { active: false } }],
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.headers["content-type"]).toMatch(/^application\/scim\+json/);
+    expect(res.body.active).toBe(false);
+    expect(res.body.userName).toBe("d@example.com");
+    expect(res.body.id).toBe(u.id);
+  });
+
+  it("applies multi-op PATCH atomically per RFC 7644 §3.5.2", async () => {
+    const u = await store.create({
+      schemas: ["urn:ietf:params:scim:schemas:core:2.0:User"],
+      userName: "m@example.com",
+      active: true,
+      name: { givenName: "Old", familyName: "Name" },
+    });
+
+    const res = await request(app)
+      .patch(`/scim/v2/Users/${u.id}`)
+      .send({
+        schemas: [PATCH_ENVELOPE_SCHEMA],
+        Operations: [
+          { op: "replace", value: { active: false } },
+          { op: "replace", path: "name.givenName", value: "New" },
+        ],
+      });
+
+    expect(res.status).toBe(200);
+    expect(res.body.active).toBe(false);
+    expect(res.body.name.givenName).toBe("New");
+    expect(res.body.name.familyName).toBe("Name"); // untouched preserved
+  });
+
+  it("returns 404 + noTarget when id is unknown", async () => {
+    const res = await request(app)
+      .patch("/scim/v2/Users/00u00000000000000999")
+      .send({
+        schemas: [PATCH_ENVELOPE_SCHEMA],
+        Operations: [{ op: "replace", value: { active: false } }],
+      });
+
+    expect(res.status).toBe(404);
+    expect(res.body.scimType).toBe("noTarget");
+  });
+
+  it("returns 400 + invalidSyntax when PatchOp envelope is missing schemas", async () => {
+    const u = await store.create({
+      schemas: ["urn:ietf:params:scim:schemas:core:2.0:User"],
+      userName: "e@example.com",
+      active: true,
+    });
+
+    const res = await request(app)
+      .patch(`/scim/v2/Users/${u.id}`)
+      .send({ Operations: [{ op: "replace", value: { active: false } }] });
+
+    expect(res.status).toBe(400);
+    expect(res.body.scimType).toBe("invalidSyntax");
+  });
+
+  it("returns 400 + invalidSyntax when Operations is missing or not an array", async () => {
+    const u = await store.create({
+      schemas: ["urn:ietf:params:scim:schemas:core:2.0:User"],
+      userName: "f@example.com",
+      active: true,
+    });
+
+    const res = await request(app)
+      .patch(`/scim/v2/Users/${u.id}`)
+      .send({ schemas: [PATCH_ENVELOPE_SCHEMA] });
+
+    expect(res.status).toBe(400);
+    expect(res.body.scimType).toBe("invalidSyntax");
+  });
+
+  it("returns 409 + uniqueness if PATCH would set userName to one that already exists", async () => {
+    await store.create({
+      schemas: ["urn:ietf:params:scim:schemas:core:2.0:User"],
+      userName: "taken@example.com",
+      active: true,
+    });
+    const other = await store.create({
+      schemas: ["urn:ietf:params:scim:schemas:core:2.0:User"],
+      userName: "other@example.com",
+      active: true,
+    });
+
+    const res = await request(app)
+      .patch(`/scim/v2/Users/${other.id}`)
+      .send({
+        schemas: [PATCH_ENVELOPE_SCHEMA],
+        Operations: [{ op: "replace", path: "userName", value: "taken@example.com" }],
+      });
+
+    expect(res.status).toBe(409);
+    expect(res.body.scimType).toBe("uniqueness");
+  });
+});
