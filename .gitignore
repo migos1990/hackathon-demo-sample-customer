@@ -1,0 +1,43 @@
+# Node
+node_modules/
+dist/
+build/
+.npm/
+.pnp.*
+*.tsbuildinfo
+
+# Test + coverage
+coverage/
+.nyc_output/
+*.test.snap
+
+# Secrets — NEVER commit
+.env
+.env.local
+.env.*.local
+secrets/
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+crash.log
+override.tf
+override.tf.json
+*_override.tf
+*_override.tf.json
+
+# Per-ticket agent workspaces (Symphony durable)
+workspaces/*
+!workspaces/.gitkeep
+
+# Editor
+.vscode/
+.idea/
+*.swp
+.DS_Store
+
+# Local artifacts
+screenshots/
+*.local.md
