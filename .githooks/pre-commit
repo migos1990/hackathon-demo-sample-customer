@@ -94,6 +94,25 @@ if [ -n "$TRUTH_VIOLATIONS" ]; then
 fi
 pass "TRUTH LAW — advisory scan done"
 
+# ─── Connector Law 3 — DIALECT-CITED scan for skeleton/ + connectors/ ──
+# Files that touch Okta-specific behavior (SCIM content type, OIN userName
+# filtering, Okta-shaped ids, scim-patch, scim2-parse-filter, scimType
+# uniqueness) must cite the authoritative source in-file: docs/okta-
+# dialect.md, RFC 7643/7644, an Okta official-doc URL, or explicit
+# UNVERIFIED. Scope: non-test .ts files under skeleton/ or connectors/
+# that are staged for this commit.
+if [ -x node_modules/.bin/tsx ]; then
+    DIALECT_SCOPE=$(echo "$STAGED" | grep -E '^(skeleton|connectors)/' | grep '\.ts$' | grep -v '\.test\.ts$' || true)
+    if [ -n "$DIALECT_SCOPE" ]; then
+        echo "▶ Connector Law 3 — dialect-citation scan"
+        # Pass each file as a separate arg to the script via node -e bootstrap.
+        if ! node_modules/.bin/tsx scripts/dialect-citation-scan-cli.ts $DIALECT_SCOPE; then
+            fail "Connector Law 3 violation: dialect trigger without citation. See docs/connector-laws.md §3."
+        fi
+        pass "Connector Law 3 — dialect citations present"
+    fi
+fi
+
 # ─── Connector Laws 7 + 9 — RUNBOOK completeness for connectors/* ──
 # Any staged change under connectors/<slug>/ requires that directory's
 # RUNBOOK.md to pass scripts/runbook-check.ts. Without a compliant runbook,
