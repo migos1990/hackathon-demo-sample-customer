@@ -22,6 +22,8 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.94.0",
+    "ajv": "^8.20.0",
+    "ajv-formats": "^3.0.1",
     "canonicalize": "^3.0.0",
     "express": "^4.19.0",
     "scim-patch": "^0.9.0",
