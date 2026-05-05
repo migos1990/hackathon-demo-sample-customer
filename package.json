@@ -18,7 +18,8 @@
     "start:acme-hr-connector": "tsx connectors/acme-hr/start.ts",
     "start:acme-hr-connector-bugged": "tsx connectors/acme-hr-bugged/start.ts",
     "smoke": "tsx scripts/smoke/cli.ts --connector-url http://localhost:3002 --target-url http://localhost:4001",
-    "smoke:bugged": "tsx scripts/smoke/cli.ts --connector-url http://localhost:3003 --target-url http://localhost:4001"
+    "smoke:bugged": "tsx scripts/smoke/cli.ts --connector-url http://localhost:3003 --target-url http://localhost:4001",
+    "orchestrator": "tsx scripts/orchestrator/cli.ts"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.94.0",
