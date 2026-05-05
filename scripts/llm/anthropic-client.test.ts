@@ -15,25 +15,45 @@ import { LlmClientError } from "./types.js";
 const TEST_KEY = "sk" + "-" + "test-fake-not-a-real-key";
 const LEAKY_KEY = "sk" + "-" + "secret-leaked-by-sdk";
 
+/**
+ * Wraps a create()-only function into the full SdkLike shape (adds a
+ * stream() that delegates to the same builder). Small inline fakes can
+ * just pass their create body through this helper to satisfy the typed
+ * interface without duplicating the response object.
+ */
+function withStream<T>(createFn: (req: unknown) => Promise<T>): SdkLike["messages"] {
+  return {
+    create: createFn as SdkLike["messages"]["create"],
+    stream(req: unknown) {
+      return { finalMessage: () => createFn(req) as Promise<SdkMessageResponse> };
+    },
+  };
+}
+type SdkMessageResponse = Awaited<ReturnType<SdkLike["messages"]["create"]>>;
+
 function fakeSdk(response: { text: string; stopReason?: string; inputTokens?: number; outputTokens?: number; model?: string } | Error): SdkLike {
+  const build = (req: unknown) => {
+    if (response instanceof Error) throw response;
+    const r = req as { model: string };
+    return {
+      id: "msg_test_0001",
+      type: "message",
+      role: "assistant",
+      model: response.model ?? r.model,
+      content: [{ type: "text", text: response.text }],
+      stop_reason: response.stopReason ?? "end_turn",
+      stop_sequence: null,
+      usage: {
+        input_tokens: response.inputTokens ?? 10,
+        output_tokens: response.outputTokens ?? 5,
+      },
+    };
+  };
   return {
     messages: {
-      async create(req: unknown) {
-        if (response instanceof Error) throw response;
-        const r = req as { model: string };
-        return {
-          id: "msg_test_0001",
-          type: "message",
-          role: "assistant",
-          model: response.model ?? r.model,
-          content: [{ type: "text", text: response.text }],
-          stop_reason: response.stopReason ?? "end_turn",
-          stop_sequence: null,
-          usage: {
-            input_tokens: response.inputTokens ?? 10,
-            output_tokens: response.outputTokens ?? 5,
-          },
-        };
+      async create(req: unknown) { return build(req); },
+      stream(req: unknown) {
+        return { async finalMessage() { return build(req); } };
       },
     },
   };
@@ -74,21 +94,19 @@ describe("createAnthropicClient — generate()", () => {
   it("passes a system prompt through when provided", async () => {
     let observedReq: unknown = null;
     const sdk: SdkLike = {
-      messages: {
-        async create(req: unknown) {
-          observedReq = req;
-          return {
-            id: "msg_test",
-            type: "message",
-            role: "assistant",
-            model: "claude-sonnet-4-6",
-            content: [{ type: "text", text: "done" }],
-            stop_reason: "end_turn",
-            stop_sequence: null,
-            usage: { input_tokens: 1, output_tokens: 1 },
-          };
-        },
-      },
+      messages: withStream(async (req: unknown) => {
+        observedReq = req;
+        return {
+          id: "msg_test",
+          type: "message",
+          role: "assistant",
+          model: "claude-sonnet-4-6",
+          content: [{ type: "text", text: "done" }],
+          stop_reason: "end_turn",
+          stop_sequence: null,
+          usage: { input_tokens: 1, output_tokens: 1 },
+        };
+      }),
     };
     const client = createAnthropicClient({ apiKey: TEST_KEY, baseUrl: "https://x", sdk });
     await client.generate({
@@ -101,23 +119,19 @@ describe("createAnthropicClient — generate()", () => {
 
   it("concatenates multiple content blocks into a single text string", async () => {
     const sdk: SdkLike = {
-      messages: {
-        async create(_req: unknown) {
-          return {
-            id: "msg",
-            type: "message",
-            role: "assistant",
-            model: "claude-sonnet-4-6",
-            content: [
-              { type: "text", text: "part one " },
-              { type: "text", text: "part two" },
-            ],
-            stop_reason: "end_turn",
-            stop_sequence: null,
-            usage: { input_tokens: 1, output_tokens: 1 },
-          };
-        },
-      },
+      messages: withStream(async (_req: unknown) => ({
+        id: "msg",
+        type: "message",
+        role: "assistant",
+        model: "claude-sonnet-4-6",
+        content: [
+          { type: "text", text: "part one " },
+          { type: "text", text: "part two" },
+        ],
+        stop_reason: "end_turn",
+        stop_sequence: null,
+        usage: { input_tokens: 1, output_tokens: 1 },
+      })),
     };
     const client = createAnthropicClient({ apiKey: TEST_KEY, baseUrl: "https://x", sdk });
     const res = await client.generate({
@@ -178,17 +192,15 @@ describe("createAnthropicClient — generate()", () => {
     // and the fake SDK is still called once.
     let calls = 0;
     const sdk: SdkLike = {
-      messages: {
-        async create() {
-          calls++;
-          return {
-            id: "msg", type: "message", role: "assistant", model: "claude-sonnet-4-6",
-            content: [{ type: "text", text: "ok" }],
-            stop_reason: "end_turn", stop_sequence: null,
-            usage: { input_tokens: 1, output_tokens: 1 },
-          };
-        },
-      },
+      messages: withStream(async () => {
+        calls++;
+        return {
+          id: "msg", type: "message", role: "assistant", model: "claude-sonnet-4-6",
+          content: [{ type: "text", text: "ok" }],
+          stop_reason: "end_turn", stop_sequence: null,
+          usage: { input_tokens: 1, output_tokens: 1 },
+        };
+      }),
     };
     const client = createAnthropicClient({
       apiKey: TEST_KEY,
@@ -223,20 +235,16 @@ describe("createAnthropicClient — generate()", () => {
 
   it("maps SDK responses without any text content to an empty string (not crash)", async () => {
     const sdk: SdkLike = {
-      messages: {
-        async create(_req: unknown) {
-          return {
-            id: "msg",
-            type: "message",
-            role: "assistant",
-            model: "claude-sonnet-4-6",
-            content: [{ type: "tool_use", id: "tu_1", name: "x", input: {} }],
-            stop_reason: "tool_use",
-            stop_sequence: null,
-            usage: { input_tokens: 1, output_tokens: 1 },
-          };
-        },
-      },
+      messages: withStream(async (_req: unknown) => ({
+        id: "msg",
+        type: "message",
+        role: "assistant",
+        model: "claude-sonnet-4-6",
+        content: [{ type: "tool_use", id: "tu_1", name: "x", input: {} }],
+        stop_reason: "tool_use",
+        stop_sequence: null,
+        usage: { input_tokens: 1, output_tokens: 1 },
+      })),
     };
     const client = createAnthropicClient({ apiKey: TEST_KEY, baseUrl: "https://x", sdk });
     const res = await client.generate({
@@ -247,6 +255,90 @@ describe("createAnthropicClient — generate()", () => {
     expect(res.stopReason).toBe("tool_use");
   });
 });
+
+describe("createAnthropicClient — streaming path", () => {
+  it("uses stream().finalMessage() when maxTokens > 8192", async () => {
+    let createCalls = 0;
+    let streamCalls = 0;
+    const sdk: SdkLike = {
+      messages: {
+        async create(_req: unknown) {
+          createCalls++;
+          return buildFakeResponse("from-create");
+        },
+        stream(_req: unknown) {
+          streamCalls++;
+          return { async finalMessage() { return buildFakeResponse("from-stream"); } };
+        },
+      },
+    };
+    const client = createAnthropicClient({ apiKey: TEST_KEY, baseUrl: "https://x", sdk });
+    const res = await client.generate({
+      maxTokens: 16384,
+      messages: [{ role: "user", content: "hi" }],
+    });
+    expect(createCalls).toBe(0);
+    expect(streamCalls).toBe(1);
+    expect(res.text).toBe("from-stream");
+  });
+
+  it("uses create() (non-streaming) when maxTokens <= 8192", async () => {
+    let createCalls = 0;
+    let streamCalls = 0;
+    const sdk: SdkLike = {
+      messages: {
+        async create(_req: unknown) {
+          createCalls++;
+          return buildFakeResponse("from-create");
+        },
+        stream(_req: unknown) {
+          streamCalls++;
+          return { async finalMessage() { return buildFakeResponse("from-stream"); } };
+        },
+      },
+    };
+    const client = createAnthropicClient({ apiKey: TEST_KEY, baseUrl: "https://x", sdk });
+    await client.generate({
+      maxTokens: 8192,
+      messages: [{ role: "user", content: "hi" }],
+    });
+    expect(createCalls).toBe(1);
+    expect(streamCalls).toBe(0);
+  });
+
+  it("wraps stream() errors with apiKey redaction, same as create()", async () => {
+    const sdk: SdkLike = {
+      messages: {
+        async create() { throw new Error("unused"); },
+        stream() {
+          return { async finalMessage(): Promise<SdkMessageResponse> {
+            throw new Error(`streaming failed with key ${LEAKY_KEY}`);
+          } };
+        },
+      },
+    };
+    const client = createAnthropicClient({ apiKey: LEAKY_KEY, baseUrl: "https://x", sdk });
+    await expect(
+      client.generate({ maxTokens: 16384, messages: [{ role: "user", content: "hi" }] }),
+    ).rejects.toSatisfy((err: unknown) => {
+      if (!(err instanceof LlmClientError)) return false;
+      return !err.message.includes(LEAKY_KEY);
+    });
+  });
+});
+
+function buildFakeResponse(text: string): SdkMessageResponse {
+  return {
+    id: "msg_test",
+    type: "message",
+    role: "assistant",
+    model: "claude-sonnet-4-6",
+    content: [{ type: "text", text }],
+    stop_reason: "end_turn",
+    stop_sequence: null,
+    usage: { input_tokens: 1, output_tokens: 1 },
+  };
+}
 
 describe("createAnthropicClient — fromEnv()", () => {
   it("reads ANTHROPIC_API_KEY and ANTHROPIC_BASE_URL from process.env", async () => {

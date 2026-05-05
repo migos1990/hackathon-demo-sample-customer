@@ -25,10 +25,16 @@ import {
 /**
  * Duck-typed slice of @anthropic-ai/sdk that we actually call. Lets tests
  * inject a fake without subclassing the real Anthropic class.
+ *
+ * `stream()` bypasses the SDK's non-streaming >10-minute safety guard
+ * that trips on maxTokens > ~8k. We use `.finalMessage()` to collapse
+ * the stream back to the same response shape — we don't need chunk-by-
+ * chunk UI, just the full text.
  */
 export interface SdkLike {
   messages: {
     create(req: unknown): Promise<SdkMessageResponse>;
+    stream(req: unknown): { finalMessage(): Promise<SdkMessageResponse> };
   };
 }
 
@@ -87,15 +93,26 @@ export function createAnthropicClient(options: AnthropicClientOptions): Anthropi
       }
 
       const model = req.model ?? DEFAULT_MODEL;
+      const sdkReq = {
+        model,
+        max_tokens: req.maxTokens,
+        ...(req.system !== undefined && { system: req.system }),
+        messages: req.messages.map((m) => ({ role: m.role, content: m.content })),
+      };
 
       let raw: SdkMessageResponse;
       try {
-        raw = await sdk.messages.create({
-          model,
-          max_tokens: req.maxTokens,
-          ...(req.system !== undefined && { system: req.system }),
-          messages: req.messages.map((m) => ({ role: m.role, content: m.content })),
-        });
+        // Auto-stream for large outputs. The SDK throws on non-streaming
+        // requests whose estimated duration exceeds 10 minutes; anything
+        // above ~8192 maxTokens lands in that band for sonnet-4-6.
+        // UNVERIFIED: the exact threshold changes with model + proxy; 8192
+        // is empirically safe for sonnet-4-6 via the LiteLLM proxy as of
+        // 2026-05-05. See docs/integrations/anthropic-sdk.md.
+        if (req.maxTokens > 8192) {
+          raw = await sdk.messages.stream(sdkReq).finalMessage();
+        } else {
+          raw = await sdk.messages.create(sdkReq);
+        }
       } catch (err) {
         throw wrapSdkError(err, apiKey);
       }

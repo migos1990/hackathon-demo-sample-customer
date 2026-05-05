@@ -28,18 +28,17 @@ export interface CreateAgentOptions {
   llm: AnthropicClient;
   /** Override default model (sonnet-4-6). Use opus-4-7 for pedantic tickets. */
   model?: ClaudeModel;
-  /** Max output tokens. Default 32000 — large enough for a 6-file connector tree with generous RUNBOOK. */
+  /** Max output tokens. Default 32000 — large enough for a 6-file connector tree with generous RUNBOOK. Auto-streams via anthropic-client when > 8192. */
   maxTokens?: number;
 }
 
 export function createAgent(opts: CreateAgentOptions): Agent {
   const model = opts.model ?? DEFAULT_MODEL;
-  // 8k sits under the Anthropic SDK's non-streaming safety guard
-  // (>10min requests require streaming). The parser is lenient on
-  // truncated trailing blocks, so if the full connector tree doesn't
-  // fit, we still commit what did. A streaming-aware path would
-  // remove the cap — future work per the agent integration doc.
-  const maxTokens = opts.maxTokens ?? 8_000;
+  // 32k covers a full 6-file connector tree (mapping, client, store,
+  // server, start, RUNBOOK). The LLM client auto-streams when
+  // maxTokens > 8192 to bypass the SDK's non-streaming safety guard —
+  // see scripts/llm/anthropic-client.ts.
+  const maxTokens = opts.maxTokens ?? 32_000;
 
   return {
     async generateConnector(input: AgentInput): Promise<GeneratedFile[]> {
