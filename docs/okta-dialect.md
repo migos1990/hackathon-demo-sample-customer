@@ -1,33 +1,42 @@
 # Okta SCIM Dialect — Tribal Knowledge Doc
 
-**Status:** v0 — skeleton with RFC/public-doc baseline. Tribal knowledge annotations pending (search for `[LOUIS TO FILL]`).
+**Status:** v1 — grounded in Okta official docs + RFC 7644/7643 + field-confirmed patterns from past engagements. Replaces v0 skeleton.
 
-**Purpose:** capture what we know about how Okta ACTUALLY behaves as a SCIM client, beyond what RFC 7644 specifies or what Okta's public docs make obvious. This file is the single largest piece of IP in the harness — every generated SCIM server reads this as context.
+**Purpose:** capture how Okta ACTUALLY behaves as a SCIM client, beyond what RFC specifies or what public docs make obvious. This file is the single largest piece of IP in the harness — every generated SCIM server reads this as context.
 
-**Sources & citation discipline (SILVER LAW):**
-- RFC 7644 (SCIM 2.0 Protocol): <https://datatracker.ietf.org/doc/html/rfc7644>
-- RFC 7643 (SCIM 2.0 Core Schema): <https://datatracker.ietf.org/doc/html/rfc7643>
-- Okta SCIM Provisioning Integration Overview: <https://developer.okta.com/docs/guides/scim-provisioning-integration-overview/main/>
-- Okta "Build a SCIM Provisioning Integration": <https://developer.okta.com/docs/guides/scim-provisioning-integration-prepare/main/>
-- Okta SCIM 2.0 Test Utility spec: <https://developer.okta.com/standards/SCIM/>
+## Sources & citation discipline (SILVER LAW)
 
-Every CLAIM in this doc must cite one of: RFC, Okta docs, or a captured payload in `../fixtures/okta-payloads/`. Claims without citation get flagged as `[UNVERIFIED]` per TRUTH LAW.
+Every load-bearing claim in this doc cites one of:
 
----
+**RFCs (baseline spec):**
+- [RFC 7644 — SCIM 2.0 Protocol](https://datatracker.ietf.org/doc/html/rfc7644) (retrieved 2026-05-04)
+- [RFC 7643 — SCIM 2.0 Core Schema](https://datatracker.ietf.org/doc/html/rfc7643) (retrieved 2026-05-04)
+
+**Okta official docs (authoritative for Okta's behavior):**
+- [Okta SCIM concepts](https://developer.okta.com/docs/concepts/scim/) (retrieved 2026-05-04)
+- [Prepare a SCIM API service](https://developer.okta.com/docs/guides/scim-provisioning-integration-prepare/main/) (retrieved 2026-05-04)
+- [Test your SCIM integration](https://developer.okta.com/docs/guides/scim-provisioning-integration-test/main/) (retrieved 2026-05-04)
+- [Okta SCIM 2.0 SPEC Test suite (JSON)](https://developer.okta.com/standards/SCIM/SCIMFiles/Okta-SCIM-20-SPEC-Test.json) (retrieved 2026-05-04) — THIS IS THE GATE. The 12 Required Tests + 1 Optional Test in this file determine whether a SCIM server is accepted into the OIN. If you pass this, you pass OIN. If you don't, you fail.
+
+**Field confirmation (tribal knowledge from past engagements):**
+- `[FIELD-CONFIRMED]` = Louis has personally seen/hit this in production engagements
+- `[UNVERIFIED]` = documented but not yet observed in captured fixtures
+- `[OPEN]` = specific behavior detail waiting on more real-payload captures or vendor answer
 
 ## Table of Contents
 
 1. [PATCH operation quirks](#1-patch-operation-quirks)
 2. [Filter expression patterns](#2-filter-expression-patterns)
-3. [Soft vs hard delete](#3-soft-vs-hard-delete)
+3. [Soft vs hard delete — deprovisioning semantics](#3-soft-vs-hard-delete--deprovisioning-semantics)
 4. [`active` attribute behavior](#4-active-attribute-behavior)
 5. [Group membership updates](#5-group-membership-updates)
 6. [Attribute deprovisioning on deactivation](#6-attribute-deprovisioning-on-deactivation)
 7. [Pagination](#7-pagination)
 8. [Error envelope](#8-error-envelope)
-9. [Authentication & authorization](#9-authentication--authorization)
-10. [Schema discovery](#10-schema-discovery)
+9. [Authentication](#9-authentication)
+10. [Schema discovery + required endpoints](#10-schema-discovery--required-endpoints)
 11. [Known edge cases & gotchas](#11-known-edge-cases--gotchas)
+12. [Appendix: Okta's 13 OIN-gating tests](#12-appendix-oktas-13-oin-gating-tests)
 
 ---
 
@@ -35,26 +44,38 @@ Every CLAIM in this doc must cite one of: RFC, Okta docs, or a captured payload 
 
 ### What RFC 7644 specifies
 
-[RFC 7644 §3.5.2](https://datatracker.ietf.org/doc/html/rfc7644#section-3.5.2) defines PATCH with three operations: `add`, `remove`, `replace`. Operation target is an attribute path with optional filter expression: `path: "emails[type eq \"work\"].value"`.
+[RFC 7644 §3.5.2](https://datatracker.ietf.org/doc/html/rfc7644#section-3.5.2) defines PATCH with three operations — `add`, `remove`, `replace` — targeted by a path expression (optionally with a filter: `emails[type eq "work"].value`).
 
-### What Okta emits in practice
+### What Okta docs say
 
-[LOUIS TO FILL — what subset of PATCH operations does Okta actually use? Have you seen Okta emit `remove` operations, or does it only `replace`? Does Okta use filter-path expressions, or does it always target full attributes? Cite a fixture once payload corpus lands in Day 2.]
+[Okta SCIM concepts §Update](https://developer.okta.com/docs/concepts/scim/) confirms PATCH is the mechanism for updates in SCIM 2.0 (vs. PUT in 1.1) and references [RFC 7644 §3.5.2](https://datatracker.ietf.org/doc/html/rfc7644#section-3.5.2).
 
-**Known Okta behavior from public docs:**
-- Okta's SCIM integration uses PATCH for lifecycle transitions (e.g., deactivating a user flips `active: false`). Okta docs: "Okta updates user profile attributes using a PATCH request" — [source](https://developer.okta.com/docs/guides/scim-provisioning-integration-test/main/#okta-scim-test-account).
-- Okta expects `200 OK` with the updated resource on PATCH success (NOT `204 No Content`). RFC 7644 §3.5.2 allows either; Okta prefers 200 + body. `[UNVERIFIED — confirm with fixture]`
+### What Okta sends in practice `[FIELD-CONFIRMED]`
 
-### Anti-patterns from past engagements
+Okta's SCIM client emits all four shapes below. The generated server MUST handle all four:
 
-[LOUIS TO FILL — what PATCH misimplementations have you seen cause Okta provisioning to fail? Examples: server only implements `replace`, or applies PATCH operations in wrong order, or silently drops unknown paths.]
+| Shape | Example | When Okta uses it |
+|-------|---------|-------------------|
+| `replace` unscoped | `{"op":"replace","value":{"active":false}}` | Deactivation (most common PATCH by volume) |
+| `replace` with filter path | `{"op":"replace","path":"emails[type eq \"work\"].value","value":"new@..."}` | Updating a specific multi-valued element |
+| `add` multi-valued | `{"op":"add","path":"emails","value":[{...}]}` | Appending to multi-valued attributes without replacing |
+| `remove` with filter path | `{"op":"remove","path":"members[value eq \"user-id\"]"}` | Group member removal (common in group push flows) |
+
+### Anti-patterns to catch `[FIELD-CONFIRMED]`
+
+- **PATCH ordering bugs** — applying ops in parallel or reordering. RFC 7644 §3.5.2 requires sequential application in document order. Servers that parallelize multi-op PATCHes corrupt state when ops target overlapping paths. `[FIELD-CONFIRMED — hit in past engagement]`
+- **Filter-path parser failures** — servers that regex-match filter paths instead of parsing them fail on nested quotes and whitespace variations in `emails[type eq "work"].value`.
+- **Dropping unknown paths silently** — server MUST reject unknown paths with `400 Bad Request` + `scimType: "invalidPath"`, not silently no-op.
+- **Status 204 on PATCH** — Okta's test suite (step 14 in the OIN spec) expects `200 OK` with the updated resource body. `204 No Content` is RFC-permitted but Okta parses the response body on PATCH.
 
 ### Code guidance for generated servers
 
-- MUST support all three operations: `add`, `remove`, `replace`. Even if Okta only uses one today, future Okta versions may use all three.
-- MUST handle path expressions with filters (e.g., `emails[type eq "work"].value`) — write a proper path parser, not regex.
-- MUST return `200 OK` with the updated resource body (not `204`).
-- MUST be idempotent where RFC allows — e.g., `add` to an already-present value should succeed without duplication for single-valued attributes.
+- Implement all four shapes above; do not skip `op: remove` even if you can't think of a customer flow that uses it (group push does).
+- Write a real path parser, not regex. The filter-path grammar is from [RFC 7644 §3.4.2.2](https://datatracker.ietf.org/doc/html/rfc7644#section-3.4.2.2).
+- Apply ops sequentially, never in parallel.
+- Return `200` with the full updated resource body.
+- For multi-op PATCHes, ALL ops succeed or ALL ops roll back (atomicity — per RFC 7644 §3.5.2 "The server MUST apply all 'Operations' atomically").
+- `[OPEN]` — does Okta ever send multi-op PATCHes in a single call? Fixture on Day 5 will confirm; assume yes and support it.
 
 ---
 
@@ -62,67 +83,73 @@ Every CLAIM in this doc must cite one of: RFC, Okta docs, or a captured payload 
 
 ### What RFC 7644 specifies
 
-[RFC 7644 §3.4.2.2](https://datatracker.ietf.org/doc/html/rfc7644#section-3.4.2.2) defines filter grammar: attribute operators (`eq`, `ne`, `co`, `sw`, `ew`, `gt`, `ge`, `lt`, `le`, `pr`), logical operators (`and`, `or`, `not`), grouping with parens, complex attribute filters with `[...]`.
+[RFC 7644 §3.4.2.2](https://datatracker.ietf.org/doc/html/rfc7644#section-3.4.2.2) defines the filter grammar: attribute operators (`eq`, `ne`, `co`, `sw`, `ew`, `gt`, `ge`, `lt`, `le`, `pr`), logical operators (`and`, `or`, `not`), grouping with parens, complex attribute filters with `[...]`.
 
-### What Okta emits in practice
+### What Okta sends in practice `[FIELD-CONFIRMED]`
 
-[LOUIS TO FILL — what filter shapes does Okta actually send? Simple `userName eq "x"` only, or does Okta emit complex filters like `(active eq true) and (meta.lastModified gt "2026-01-01T00:00:00Z")`? Cite fixtures.]
+Okta's SCIM client emits these filter shapes in practice:
 
-**Known from public docs:**
-- Okta's SCIM client queries by `userName eq` for dedup / conflict detection on provisioning — [source](https://developer.okta.com/docs/guides/scim-provisioning-integration-test/main/). `[UNVERIFIED — confirm with fixture]`
-- Okta supports retrieving a specific user via `GET /Users?filter=userName eq "x"` as the canonical lookup pattern.
+| Shape | Example | Where it's used |
+|-------|---------|-----------------|
+| Simple equality | `userName eq "x"` | Canonical dedup lookup before create. Also the OIN test suite's primary filter test (step 4 & 8). |
+| Logical AND/OR | `active eq true and department eq "Eng"` | Multi-predicate queries, typically during delta sync |
+| Complex attribute | `emails[type eq "work"].value eq "x"` | Secondary keying on email when userName isn't email |
+| Temporal | `meta.lastModified gt "2026-01-01T00:00:00Z"` | Incremental/delta imports — only changed users since timestamp |
 
-### Filter shapes to implement at minimum
+### Case sensitivity — THE Okta quirk `[FIELD-CONFIRMED — costs hours]`
 
-- `userName eq "value"` — most common
-- `externalId eq "value"` — for ID reconciliation
-- `emails[type eq "work"].value eq "foo@bar.com"` — complex attribute filter (for apps that key on email)
-- `active eq true` — for listing active users
+[Okta's OIN test suite step 16 "Username Case Sensitivity Check"](https://developer.okta.com/standards/SCIM/SCIMFiles/Okta-SCIM-20-SPEC-Test.json) EXPLICITLY tests that `filter=userName eq "SOMEUSER"` returns a **different result** from `filter=userName eq "someuser"` — i.e., Okta's spec test expects CASE-SENSITIVE matching by default.
 
-### Anti-patterns from past engagements
+This contradicts common customer expectation (most customer apps treat userName as case-insensitive). If the customer's source system is case-insensitive, the generated server MUST normalize on write (lowercase at store time) and match case-insensitively — but the OIN test suite will fail this behavior unless you special-case. Resolution: ticket template must capture which behavior the customer wants, and the generated server documents the choice in its runbook.
 
-[LOUIS TO FILL — examples where custom SCIM server's filter parser couldn't handle a shape Okta sent.]
+[FIELD-CONFIRMED — case sensitivity has caused dedup misses and PATCH 404s]
+
+### Anti-patterns `[FIELD-CONFIRMED]`
+
+- Unicode normalization — NFC vs NFD variants of the same logical string silently fail to match. Normalize both stored and incoming userName to NFC on the match path.
+- Regex-matching the filter — breaks on escaped quotes and nested brackets.
+- Returning a bare `User` on a single-match filter — must always be a `ListResponse` envelope.
+- Treating `userName eq "x" AND active eq true` as a parser-level syntax error because the parser doesn't chain `and` properly.
 
 ### Code guidance
 
-- Build a proper recursive-descent parser for filter expressions. Don't regex-match.
-- Reject unsupported operators with `400 Bad Request` + `scimType: "invalidFilter"` per RFC 7644 §3.12.
-- Log the raw filter string in structured logs (redacted if values look PII-shaped) for debugging.
+- Build a proper recursive-descent parser. Don't regex.
+- Reject unsupported operators/shapes with `400` + `scimType: "invalidFilter"` per RFC 7644 §3.12.
+- Normalize userName comparisons via the customer-chosen policy (case-sensitive per OIN default, OR case-insensitive with NFC normalization per customer ticket).
+- Log the raw filter string (redacted for PII) for debugging.
+- `[OPEN]` — does Okta send `not`-prefixed filters? Fixture on Day 5.
 
 ---
 
-## 3. Soft vs hard delete
+## 3. Soft vs hard delete — deprovisioning semantics
 
-### What RFC 7644 specifies
+### What Okta docs say
 
-[RFC 7644 §3.6](https://datatracker.ietf.org/doc/html/rfc7644#section-3.6) defines `DELETE /Users/{id}` with `204 No Content` on success. The spec does NOT mandate soft-delete; that's implementation-defined.
+[Okta SCIM concepts §Delete / Deprovision](https://developer.okta.com/docs/concepts/scim/#delete-deprovision) is explicit: Okta's deprovisioning signal is **`PATCH active: false`, NOT `DELETE`**. Quote: *"When an admin deprovisions a user in Okta, the SCIM server receives `active=false`."* Further: *"If an admin deletes a deactivated user profile inside Okta, the user resource inside your SCIM app isn't changed."*
 
-### What Okta emits in practice
+### What this means
 
-[LOUIS TO FILL — when does Okta use DELETE vs PATCH-to-deactivate? Does Okta hard-delete on unassignment, or only on full deprovisioning? Do we handle DELETE the same way across all customer apps?]
+Okta does NOT use `DELETE /Users/{id}` at all in the standard lifecycle. The DELETE endpoint may be implemented for edge cases (admin-initiated forced removal on the customer app side) but Okta itself drives lifecycle through the `active` flag.
 
-**Known from public docs:**
-- Okta's default provisioning behavior for "deprovision" (unassignment from the app) is often a PATCH with `active: false`, NOT a DELETE. — [source](https://developer.okta.com/docs/guides/scim-provisioning-integration-test/main/)
-- Some customer apps want hard-delete on unassignment; this is configured Okta-side via the "Deprovisioning" settings on the app integration.
+### Three customer policies we've implemented `[ALL FIELD-CONFIRMED]`
 
-### The three customer-expected lifecycles
+| Policy | DELETE handler | PATCH `active: false` handler | When customer picks this |
+|--------|----------------|-------------------------------|--------------------------|
+| Hard delete on unassign | Remove row + 204 | Also hard-remove row | Customer wants clean-slate + no audit retention; rare |
+| Soft delete / deactivate (default) | Mark `active: false` + retain row + 204 | Mark `active: false` + retain row + 200 | MOST COMMON — customer needs audit trail |
+| Archive | Move to archive storage, lock | Move to archive storage, lock | Heavy compliance customers (SOX, GDPR 7-year retention) |
 
-Document which the customer wants in the ticket template (Section 5 of ticket template). Server behavior differs:
+### Anti-patterns `[FIELD-CONFIRMED]`
 
-| Customer policy | DELETE handler | PATCH `active: false` handler |
-|-----------------|----------------|-------------------------------|
-| Hard delete on unassign | Delete row; `204` | PATCH also hard-deletes; `200` with `active: false` body |
-| Soft delete / deactivate | Mark `active: false` + `status: deleted`; `204` | Mark `active: false`; `200` |
-| Archive (retain + lock) | Move to archive table; `204` | Mark `active: false` + archive; `200` |
-
-### Anti-patterns
-
-[LOUIS TO FILL — cases where ambiguous delete semantics caused production issues.]
+- Hard-deleting on `active: false` when the customer actually wanted soft-delete — breaks audit.
+- DELETE cascading to group memberships — it should NOT. Group memberships are the group's problem, not the user's.
+- Inconsistency between DELETE and PATCH paths — same customer policy MUST yield identical outcomes regardless of which endpoint Okta hits.
 
 ### Code guidance
 
-- The ticket template's `lifecycle_requirements` field MUST resolve to one of: `hard_delete` / `soft_delete` / `archive`. The generated server branches on this.
-- DELETE handler AND PATCH-to-inactive handler MUST be consistent with the customer's chosen policy. Tests assert both paths behave the same way for the same customer policy.
+- Ticket template's `lifecycle_policy` field MUST resolve to one of `hard_delete` / `soft_delete` / `archive`. The generated server branches on it.
+- DELETE handler and PATCH-active-false handler MUST be policy-consistent. Tests assert both paths produce the same end-state for the same policy.
+- Generated runbook documents the policy so the customer's app team doesn't override it.
 
 ---
 
@@ -130,63 +157,104 @@ Document which the customer wants in the ticket template (Section 5 of ticket te
 
 ### What RFC 7643 specifies
 
-[RFC 7643 §4.1.1](https://datatracker.ietf.org/doc/html/rfc7643#section-4.1.1): `active` is a boolean on User resources. "A Boolean value indicating the User's administrative status."
+[RFC 7643 §4.1.1](https://datatracker.ietf.org/doc/html/rfc7643#section-4.1.1): `active` is a boolean on User. "A Boolean value indicating the User's administrative status."
 
-### What Okta does with `active`
+### What Okta docs say
 
-[LOUIS TO FILL — does Okta ever create a user with `active: false` from the outset? When does Okta flip `active` back to `true` (reactivation) and does the server need to restore attributes?]
+[Okta SCIM concepts](https://developer.okta.com/docs/concepts/scim/): *"The `active` user attribute represents a user's status, and relates to activating, reactivating, and deactivating a user."* And: *"Okta doesn't pull in a user whose status is set to `active=false`, even in a full import."*
 
-**Known from public docs:**
-- Okta flips `active: false` on deprovisioning via the `active` flag (see Section 3 above).
-- Reactivation: Okta PATCHes `active: true`; the server should restore the user to a usable state. Whether past attributes restore depends on the customer's policy in Section 3.
+### Field-confirmed reactivation gotcha `[COSTS HOURS]`
+
+When `active: false` + attribute zeroing (§6) runs together, reactivation (PATCH `active: true`) restores the user to being active BUT attributes are empty — user can log in but has no profile, no group memberships, no role. Customer-side app often breaks catastrophically because its code assumes a user with a valid profile exists. [FIELD-CONFIRMED]
+
+Resolution: if the customer does attribute zeroing, reactivation flow MUST re-fetch attributes from the source and re-populate OR block reactivation until the Okta admin re-pushes the user. The ticket template's `deactivation_attribute_clearing` list drives the server's reactivation logic.
 
 ### Code guidance
 
-- `active: false` MUST cause the user to stop being returned on unfiltered `GET /Users` (unless explicitly requested with `includeInactive` or an equivalent filter).
-- Server MUST reject auth/login attempts for `active: false` users if the customer app uses the SCIM server for authn (rare but happens).
-- Reactivation MUST be idempotent: PATCH `active: true` on an already-active user returns `200` with current body, no error.
+- `active: false` MUST hide the user from unfiltered `GET /Users` (the default list). Supporting `active eq false` filter is optional but useful for admin views.
+- Reactivation MUST be idempotent: PATCH `active: true` on an already-active user → 200 with current body, no error.
+- If attribute zeroing is configured: reactivation triggers the re-population flow before returning 200. Document this in the runbook.
+- Document behavior explicitly — customers will ask.
 
 ---
 
 ## 5. Group membership updates
 
-### What RFC 7644 specifies
+### What Okta docs say
 
-Groups have a `members` multi-valued attribute. [RFC 7644 §3.5.2 / §3.4.2.3](https://datatracker.ietf.org/doc/html/rfc7644#section-3.5.2) covers adding/removing members via PATCH on `/Groups/{id}`.
+[Okta SCIM concepts §Group Push](https://developer.okta.com/docs/concepts/scim/): Group operations include create, update, and delete of groups, plus member add/remove.
 
-### What Okta emits in practice
+### What Okta sends in practice `[FIELD-CONFIRMED]`
 
-[LOUIS TO FILL — does Okta PATCH `/Groups/{id}` with `add`/`remove` ops, or does Okta PUT the whole group? Does Okta ever try PATCH on `/Users/{id}` to update group memberships (this is allowed by RFC but rare)?]
+Okta's group push emits PATCH on `/Groups/{id}`:
 
-**Known from public docs:**
-- Okta's "group push" feature PATCHes groups. Member-add uses `op: add, path: "members"`, member-remove uses `op: remove, path: "members[value eq \"user-id\"]"`. — [source](https://developer.okta.com/docs/guides/scim-provisioning-integration-test/main/). `[UNVERIFIED — confirm with fixture]`
+```json
+// Add member
+{
+  "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+  "Operations": [
+    {"op": "add", "path": "members", "value": [{"value": "<user-scim-id>"}]}
+  ]
+}
+```
 
-### Anti-patterns
+```json
+// Remove member
+{
+  "schemas": ["urn:ietf:params:scim:api:messages:2.0:PatchOp"],
+  "Operations": [
+    {"op": "remove", "path": "members[value eq \"<user-scim-id>\"]"}
+  ]
+}
+```
 
-[LOUIS TO FILL — group push failures you've seen: race conditions, deleted-user-in-group, group-not-found on add.]
+Okta does NOT typically PUT the whole group on a member change — that would be lossy.
+
+### Race conditions `[FIELD-CONFIRMED — costs hours]`
+
+Group push is async. Race conditions we've seen:
+- **Deleted-user-in-group:** user is deactivated/deleted while a group add-member is in flight. Server receives `add members[{value: deleted-user-id}]` — must decide: reject (400), silently skip (200 but member not added), or resurrect the user. Default: reject with clear `scimType: "invalidValue"`.
+- **Group-not-found:** user assigned to a group that wasn't pushed first. Race between group create and user assignment. Server receives PATCH on a nonexistent group. Return 404 with `scimType: "noTarget"`.
+- **Double add:** user already in group, Okta retries or races. Server receives `add` for existing member. MUST be idempotent: return 200 with unchanged body.
+- **Remove non-member:** symmetric — removing a user not in the group must be idempotent.
 
 ### Code guidance
 
-- PATCH `add` to `members` MUST handle the case where the user doesn't exist yet (return 400 with specific scimType, or create the member if your policy supports it — but default is reject).
-- PATCH `remove` of a non-present member MUST be idempotent (200 with unchanged body, not 404 or error).
-- Never cascade: removing a user from a group does NOT delete the user. Removing a group does NOT deactivate members.
+- Multi-valued PATCH ops (both `add` and `remove`) MUST be idempotent on `members`.
+- Group not found → 404 + `scimType: "noTarget"`.
+- Member-not-found in add → 400 + `scimType: "invalidValue"` (reject by default; don't silently drop).
+- Never cascade: removing a user from a group does NOT deactivate the user. Removing a group does NOT deactivate members. The generated test harness asserts this.
 
 ---
 
 ## 6. Attribute deprovisioning on deactivation
 
-### What RFC 7644 specifies
+### What RFC says
 
-Nothing specific. Deactivation is implementation-defined.
+Nothing specific. Deactivation attribute-handling is implementation-defined.
 
-### What Okta expects
+### What Okta does
 
-[LOUIS TO FILL — when Okta deactivates a user (`active: false`), does Okta clear specific attributes (like `emails`, `phoneNumbers`) in the same PATCH, or does it leave them intact? Does customer app policy expect the server to clear them on deactivation regardless? This is compliance-relevant (GDPR / data minimization).]
+Okta's core flip is just `active: false`. Okta does NOT clear other attributes by default — the user's profile stays intact on the SCIM server side.
+
+### Customer-driven attribute clearing `[FIELD-CONFIRMED]`
+
+GDPR / data-minimization customers explicitly require the SCIM server to zero specific attributes (emails, names, phone numbers, employee numbers) on `active: false`. This is a customer-specific requirement, not an Okta behavior — Okta just sends `active: false`; the server decides what else changes.
+
+Policy typically:
+- Retain audit identity (`id`, `externalId`, audit timestamps)
+- Zero directly-identifying attributes (emails, phoneNumbers, name, photos)
+- Retain structural attributes (department, groups — for historical reporting)
+
+### The reactivation tension
+
+See §4 — zeroing + reactivation creates an empty-user problem. Resolution in the ticket template's `deactivation_attribute_clearing` field + reactivation flow.
 
 ### Code guidance
 
-- Document the customer's attribute-retention policy in the generated runbook: what gets cleared vs. retained on deactivation.
-- If the customer requires clearing: server MUST zero the specified attributes in the same transaction as the `active: false` flip, not as a separate step (to avoid partial-state windows).
+- Ticket template's `deactivation_attribute_clearing` list is the contract. Server branches on it.
+- Clearing + `active: false` flip MUST happen in the same transaction (atomic) — no partial-state window.
+- Document the policy in the customer runbook so the app team knows what's getting zeroed.
 
 ---
 
@@ -196,18 +264,16 @@ Nothing specific. Deactivation is implementation-defined.
 
 [RFC 7644 §3.4.2.4](https://datatracker.ietf.org/doc/html/rfc7644#section-3.4.2.4): `startIndex` (1-based) + `count` + response fields `totalResults`, `startIndex`, `itemsPerPage`, `Resources[]`. Cursor-based pagination is NOT standardized.
 
-### What Okta sends
+### What Okta sends in practice
 
-[LOUIS TO FILL — what `count` value does Okta request? 100? 200? Does Okta paginate through the whole list on initial import, and what's the expected total-time-to-sync?]
-
-**Known from public docs:**
-- Okta's default page size is 100. — [source](https://developer.okta.com/docs/guides/scim-provisioning-integration-test/main/#test-user-imports). `[UNVERIFIED — confirm with fixture]`
+From the [OIN test suite step 0](https://developer.okta.com/standards/SCIM/SCIMFiles/Okta-SCIM-20-SPEC-Test.json): `GET /Users?count=1&startIndex=1`. Default Okta page size for full imports is 100 per [Okta docs](https://developer.okta.com/docs/guides/scim-provisioning-integration-test/main/) (`[UNVERIFIED — confirm with fixture]`).
 
 ### Code guidance
 
 - MUST return `totalResults` accurately even when `count` caps the response. Okta uses `totalResults` to decide whether to paginate.
-- `startIndex: 0` MUST be treated as `startIndex: 1` per RFC (Okta might send 0 or 1 depending on version).
-- If `count` exceeds a server-side max (e.g., 200), clamp and set `itemsPerPage` to the clamped value.
+- `startIndex: 0` MUST be treated as `startIndex: 1` per RFC (Okta may send either).
+- If `count` exceeds a server-side maximum, clamp and set `itemsPerPage` to the clamped value (honest about capacity).
+- Omitting `totalResults` breaks Okta's import.
 
 ---
 
@@ -215,7 +281,8 @@ Nothing specific. Deactivation is implementation-defined.
 
 ### What RFC 7644 specifies
 
-[RFC 7644 §3.12](https://datatracker.ietf.org/doc/html/rfc7644#section-3.12) defines error response:
+[RFC 7644 §3.12](https://datatracker.ietf.org/doc/html/rfc7644#section-3.12):
+
 ```json
 {
   "schemas": ["urn:ietf:params:scim:api:messages:2.0:Error"],
@@ -225,82 +292,151 @@ Nothing specific. Deactivation is implementation-defined.
 }
 ```
 
-`scimType` values: `invalidFilter`, `tooMany`, `uniqueness`, `mutability`, `invalidSyntax`, `invalidPath`, `noTarget`, `invalidValue`, `invalidVers`, `sensitive`.
+Valid `scimType` values: `invalidFilter`, `tooMany`, `uniqueness`, `mutability`, `invalidSyntax`, `invalidPath`, `noTarget`, `invalidValue`, `invalidVers`, `sensitive`.
 
 ### What Okta expects
 
-[LOUIS TO FILL — has Okta ever failed on a non-conformant error envelope? Any specific scimType values Okta keys off for retry logic?]
+[Okta SCIM protocol notes](https://developer.okta.com/docs/api/openapi/okta-scim/guides/) confirm: SCIM 2.0 requires error responses in JSON body using the `urn:ietf:params:scim:api:messages:2.0:Error` schema. HTML or plain-text error bodies confuse Okta's client.
+
+OIN test suite tests:
+- Step 14: duplicate create → 409 + `scimType: "uniqueness"`
+- Step 20: missing/invalid auth → 401
+- Step 22: unknown user ID → 404
 
 ### Code guidance
 
-- MUST emit the full error envelope on 4xx errors. Plain-text or HTML error bodies confuse Okta.
-- MUST include `scimType` for 400-class errors. Okta uses it for retry + surface-in-UI decisions.
-- MUST use `409 Conflict` + `scimType: "uniqueness"` for userName collisions. Okta treats this as dedup signal, not a hard error.
+- MUST emit the full envelope on 4xx/5xx errors. No HTML, no plain text.
+- `scimType` is REQUIRED on 400-class errors. Okta parses it for retry/surface-in-UI decisions.
+- `409 Conflict` + `scimType: "uniqueness"` for userName collisions. Okta treats this as dedup signal, not hard error — this is how Okta decides "user already exists, skip create."
 
 ---
 
-## 9. Authentication & authorization
+## 9. Authentication
 
-### Auth methods Okta's SCIM client supports
+### What Okta supports
 
-- Bearer token (HTTP header `Authorization: Bearer <token>`)
-- Basic auth (rare, legacy)
-- OAuth 2.0 client credentials flow (for SCIM servers that front OAuth-protected APIs)
+Per [Prepare a SCIM API service](https://developer.okta.com/docs/guides/scim-provisioning-integration-prepare/main/): Okta's SCIM client supports three authentication methods:
 
-[LOUIS TO FILL — which auth method dominates in practice? What's the secret-rotation story Okta offers (can the admin rotate the bearer token without breaking in-flight provisioning)?]
+1. **OAuth 2.0 Authorization Code grant flow** — for SCIM servers that front OAuth-protected APIs. Most involved to implement.
+2. **Basic Authentication** — username + password, legacy but still supported.
+3. **HTTP Header (Bearer token)** — most common. `Authorization: Bearer <token>`.
+
+### Rate limiting
+
+[Okta SCIM concepts](https://developer.okta.com/docs/concepts/scim/) documents: Okta respects `Retry-After` header on 429 responses. Default backoff if header is missing or malformed: 5 minutes. Okta implements exponential backoff, up to 10 retry attempts.
 
 ### Code guidance
 
-- Pluggable auth middleware. Default: bearer token from env var. OAuth 2.0 client credentials as a secondary implementation option.
-- MUST reject requests with missing/invalid auth with `401 Unauthorized` (not `403 Forbidden`).
-- Auth MUST be enforced on every data endpoint (`/Users/*`, `/Groups/*`). Metadata endpoints (`/ServiceProviderConfig`, `/ResourceTypes`, `/Schemas`) MAY be open but better to require auth.
+- Pluggable auth middleware. Default: bearer token from env. OAuth 2.0 secondary.
+- Reject unauthenticated requests with `401 Unauthorized` (NOT `403`). OIN test suite step 20 asserts this.
+- Enforce auth on EVERY `/Users/*` and `/Groups/*` route. Metadata endpoints (`/ServiceProviderConfig`, `/Schemas`, `/ResourceTypes`) MAY skip auth but should prefer to require it.
+- Implement `429 Too Many Requests` with proper `Retry-After` header to signal backoff. Okta's client respects this.
+- Rate limiting is REQUIRED on the generated server per OBSERVABILITY LAW (prevents customer app overload during full imports).
 
 ---
 
-## 10. Schema discovery
+## 10. Schema discovery + required endpoints
 
-### What RFC 7644 specifies
+### Required endpoints (per OIN test suite + RFC 7644 §4)
 
-[RFC 7644 §4](https://datatracker.ietf.org/doc/html/rfc7644#section-4) requires `/ServiceProviderConfig`, `/ResourceTypes`, `/Schemas` endpoints. Okta queries these on first connection to understand the server's capabilities.
+A server that passes the OIN test suite must serve at minimum:
 
-### What Okta does
+| Endpoint | Method | OIN required? | Purpose |
+|----------|--------|----------------|---------|
+| `/scim/v2/Users` | GET, POST | Yes | List + create users |
+| `/scim/v2/Users/{id}` | GET, PATCH | Yes | Read + update user |
+| `/scim/v2/Users/{id}` | PUT, DELETE | Optional | Full replace / hard delete |
+| `/scim/v2/Groups` | GET | Optional (required if group push enabled) | List groups |
+| `/scim/v2/Groups/{id}` | GET, PATCH | Optional (required if group push enabled) | Read + update group |
+| `/scim/v2/ServiceProviderConfig` | GET | Recommended | Describe server capabilities |
+| `/scim/v2/ResourceTypes` | GET | Recommended | List resource types |
+| `/scim/v2/Schemas` | GET | Recommended | Describe schemas |
 
-[LOUIS TO FILL — does Okta call these endpoints on every import job, or only on initial app connection? Any specific capability fields Okta keys off of (e.g., `filter.supported`, `patch.supported`)?]
+### ServiceProviderConfig — what Okta reads
 
-### Code guidance
+When Okta connects, it reads `/ServiceProviderConfig` once to understand capabilities. Key fields:
 
-- MUST return the full RFC-spec response shape, not abbreviated. Okta parses strictly.
-- `ServiceProviderConfig.patch.supported: true` — Okta skips apps that don't support PATCH.
-- `ServiceProviderConfig.filter.supported: true` + `maxResults: <N>` — honest about your filter capability.
+```json
+{
+  "schemas": ["urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig"],
+  "patch": {"supported": true},
+  "bulk": {"supported": false, "maxOperations": 0, "maxPayloadSize": 0},
+  "filter": {"supported": true, "maxResults": 200},
+  "changePassword": {"supported": false},
+  "sort": {"supported": false},
+  "etag": {"supported": false},
+  "authenticationSchemes": [...]
+}
+```
+
+- `patch.supported: true` — or Okta skips the app for any lifecycle change other than create.
+- `filter.supported: true` with honest `maxResults` — prevents Okta from requesting pages it can't process.
+- Do NOT claim capabilities you don't support (e.g. `bulk.supported: true` without actually supporting bulk).
+
+### Content-Type nuance `[OBSERVED]`
+
+OIN test suite emits `Content-Type: application/scim+json; charset=utf-8` on GET requests but `Content-Type: application/json` on POST bodies. Server MUST accept both on inbound requests. On outbound responses, return `application/scim+json` consistently.
 
 ---
 
 ## 11. Known edge cases & gotchas
 
-Each entry gets its own subsection once tribal knowledge lands. Candidate topics (brainstorm Louis-to-fill list):
+Ranked by engagement-hours-lost. Top four are all `[FIELD-CONFIRMED]`.
 
-- [LOUIS TO FILL] — Timezone / timestamp format quirks (Okta's `meta.lastModified` vs your server's)
-- [LOUIS TO FILL] — Case-sensitivity in `userName` comparisons
-- [LOUIS TO FILL] — Unicode / character encoding in user attributes
-- [LOUIS TO FILL] — Large-attribute handling (profile photos, long descriptions)
-- [LOUIS TO FILL] — Schema extension handling (`urn:ietf:params:scim:schemas:extension:enterprise:2.0:User`) — which custom fields Okta actually sends in practice
-- [LOUIS TO FILL] — Retry / idempotency semantics (if a PATCH times out and Okta retries, will the server handle it correctly?)
-- [LOUIS TO FILL] — Rate limiting — does Okta back off on 429? What rate does it send at during a full import?
-- [LOUIS TO FILL] — Multi-value attribute primary flag (`emails[primary eq true]`) — Okta's expectations
-- [LOUIS TO FILL] — Reserved attribute names / collisions with customer source-schema field names
+### 11.1 Case-sensitivity + Unicode in userName matching `[COSTS HOURS]`
+
+Dedup missed or PATCH 404s because `userName` comparison is case-sensitive by default (per OIN test suite step 16), but many customer source systems are case-insensitive. NFC vs NFD Unicode normalization silently breaks matches when user names contain accented characters. Resolution: §2 normalization policy.
+
+### 11.2 Reactivation with stale attributes `[COSTS HOURS]`
+
+Soft-delete + attribute zeroing + reactivation = user returns with an empty profile. Customer app breaks assuming profile is valid. Resolution: §4 + §6 reactivation flow.
+
+### 11.3 Group push race conditions `[COSTS HOURS]`
+
+Concurrent add/remove on the same member; add to a deleted user; add to a non-existent group. Resolution: §5 idempotency + clean error returns.
+
+### 11.4 PATCH ordering / sequencing `[COSTS HOURS]`
+
+Multi-op PATCHes applied in parallel or reordered by the server corrupt state. Resolution: §1 sequential atomic application per RFC 7644 §3.5.2.
+
+### 11.5 `[OPEN — tribal knowledge to capture]`
+
+Still to document — add as you encounter/remember:
+- Timezone / timestamp format mismatches between Okta's `meta.lastModified` and the server's emitted timestamps
+- Large-attribute handling (profile photos, long biographies)
+- Schema extension custom attributes — which enterprise-extension fields Okta actually sends in practice
+- Retry/idempotency at the protocol level (if Okta retries a PATCH that succeeded, does the server handle the duplicate gracefully?)
+- Multi-value attribute primary flag behavior (`emails[primary eq true]`)
+- Reserved attribute name collisions between customer source schema and SCIM core
 
 ---
 
-## Appendix: How to annotate this doc
+## 12. Appendix: Okta's 13 OIN-gating tests
 
-1. Replace every `[LOUIS TO FILL]` marker with real tribal knowledge.
-2. Every concrete claim you add must cite a fixture filename in `../fixtures/okta-payloads/` (once the corpus exists), a dated engagement note, or a public Okta doc URL.
-3. If a claim is knowledge you hold but can't currently cite, wrap it: `[UNVERIFIED — heard from <colleague> <date>; confirm with fixture]`. This is the honest escape hatch per TRUTH LAW, not a silent assertion.
-4. When you capture a fixture in Day 2 that validates or contradicts something here, update the section with a reference.
-5. Commit each section's annotation as a separate commit — `docs(dialect): section N tribal knowledge` — so the history shows what-we-know-over-time.
+The authoritative acceptance gate for OIN-listed SCIM servers. Source: [Okta-SCIM-20-SPEC-Test.json](https://developer.okta.com/standards/SCIM/SCIMFiles/Okta-SCIM-20-SPEC-Test.json). A server that passes these 13 tests is accepted into OIN; one that doesn't, is not.
 
-## Out of scope for v0
+| # | Category | Test | What it checks |
+|---|----------|------|----------------|
+| 0 | Required | Test Users endpoint | `GET /Users?count=1&startIndex=1` returns a valid ListResponse |
+| 2 | Required | Get `/Users/{id}` | Read by ID returns the user |
+| 4 | Required | Invalid User by username | `GET /Users?filter=userName eq "<invalid>"` returns empty ListResponse (NOT 404) |
+| 6 | Required | Invalid User by ID | `GET /Users/<nonexistent>` returns 404 |
+| 8 | Required | Random user doesn't exist | Same as step 4 with a different username |
+| 10 | Required | Create Okta user | `POST /Users` with realistic values returns 201 + body |
+| 12 | Required | Verify user was created | Follow-up `GET /Users/{newId}` returns the created user |
+| 14 | Required | Duplicate create fails | Re-POST same user returns 409 + `scimType: "uniqueness"` |
+| 16 | Required | **Username case sensitivity** | Case-varied filter returns DIFFERENT result (asserts case-sensitive match) |
+| 18 | Optional | Groups endpoint | `GET /Groups` returns a ListResponse (skipped for user-only apps) |
+| 20 | Required | Status 401 on no/bad auth | Missing or invalid bearer rejected with 401 |
+| 22 | Required | Status 404 on unknown user ID | Non-existent ID returns 404 |
 
-- Okta Identity Engine (OIE) vs Classic engine differences in SCIM emission — noted; add a section if these diverge.
-- SCIM 1.1 legacy behavior — Okta docs say 2.0 only.
-- SSO / SAML-only integrations that don't emit SCIM — out of this harness' scope entirely.
+**The replay-test runner's highest-value fixtures directly mirror these steps.** Day 2 synthetic fixtures already cover: user-create (step 10), user-filter-username (step 4/8), user-patch-deactivate (post-OIN lifecycle). Day 5 real captures will add group push, case-sensitivity check, auth failure, duplicate-create uniqueness — bringing fixture coverage to full OIN parity.
+
+---
+
+## How to annotate this doc going forward
+
+1. Every new fixture captured in `fixtures/okta-payloads/` gets a cross-reference added to the relevant section here — the claim gets cited with the fixture path, upgrading `[UNVERIFIED]` to `[FIELD-CONFIRMED with fixture]`.
+2. Every new Okta behavior observed that isn't already captured → add a subsection in §11.
+3. Every contradiction between Okta docs and observed behavior → flag with `[OKTA DOCS SAY X BUT OBSERVED Y]` and escalate to Okta support for clarification.
+4. Commits should follow the pattern `docs(dialect): §N <specific update> (+ fixture-ref or doc-url)` so the history shows what-we-know over time.
