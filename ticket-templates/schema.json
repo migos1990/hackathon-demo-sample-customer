@@ -16,7 +16,8 @@
     "required_ops",
     "lifecycle_policy",
     "target_okta_tenant",
-    "terraform_workspace"
+    "terraform_workspace",
+    "promotion_gate"
   ],
   "additionalProperties": false,
   "properties": {
@@ -141,6 +142,39 @@
       "type": "string",
       "enum": ["staging", "prod"],
       "description": "Terraform workspace. Enforces staging→prod promotion gate (BLAST-RADIUS LAW)."
+    },
+    "promotion_gate": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "preprod_verified_at",
+        "preprod_manifest_sha",
+        "approver_github_username",
+        "promoted_to_prod_at"
+      ],
+      "properties": {
+        "preprod_verified_at": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "ISO-8601 timestamp set by the pre-prod verify gate on pass. Null on ticket creation. Pipeline-written only — manual writes are a tampering signal."
+        },
+        "preprod_manifest_sha": {
+          "type": ["string", "null"],
+          "pattern": "^[a-f0-9]{64}$",
+          "description": "SHA-256 of the signed Promotion Manifest. Set at approval time (see docs/promotion-flow.md §4). Null until approved. Consumed on first prod apply."
+        },
+        "approver_github_username": {
+          "type": ["string", "null"],
+          "pattern": "^[A-Za-z0-9](?:[A-Za-z0-9]|-(?=[A-Za-z0-9])){0,38}$",
+          "description": "GitHub username of the human who approved prod promotion. Must be non-null for prod apply to proceed. Null on staging tickets."
+        },
+        "promoted_to_prod_at": {
+          "type": ["string", "null"],
+          "format": "date-time",
+          "description": "ISO-8601 timestamp written by the prod apply step on success. Non-null means the ticket reached prod."
+        }
+      },
+      "description": "Gate state for the pre-prod → prod promotion flow (docs/promotion-flow.md). All fields null on ticket creation; written by pipeline only. PR diffs that transition anything other than null → value are a tampering signal."
     }
   }
 }

@@ -65,6 +65,13 @@ compliance:
 # Terraform
 target_okta_tenant: demo-customer-a-staging.oktapreview.com   # for hackathon: one of the demo tenants
 terraform_workspace: staging           # terraform workspaces enforce staging→prod promotion
+
+# Promotion gate — pipeline-written only, never hand-edited (docs/promotion-flow.md)
+promotion_gate:
+  preprod_verified_at: null            # ISO-8601; set by pre-prod verify gate on pass
+  preprod_manifest_sha: null           # SHA-256 of signed Promotion Manifest; set at approval
+  approver_github_username: null       # GitHub username; required non-null before prod apply
+  promoted_to_prod_at: null            # ISO-8601; set by prod apply on success
 ---
 
 ## Business purpose
