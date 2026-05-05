@@ -15,6 +15,7 @@ import express, { type Application, type NextFunction, type Request, type Respon
 import { metaRouter } from "./routes/meta.js";
 import { usersRouter } from "./routes/users.js";
 import { InMemoryUserStore, type UserStore } from "./store/user-store.js";
+import { bearerAuth } from "./middleware/auth.js";
 
 export interface CreateAppOptions {
   /**
@@ -23,6 +24,17 @@ export interface CreateAppOptions {
    * inject a customer-specific backing store (Postgres / LDAP proxy / etc).
    */
   userStore?: UserStore;
+  /**
+   * Bearer token for authentication. When omitted, auth is DISABLED
+   * (dev-mode convenience). Production deployments MUST set this — the
+   * generated server's runbook + env template surface this requirement.
+   */
+  authToken?: string;
+  /**
+   * Require bearer auth on /ServiceProviderConfig, /Schemas, /ResourceTypes.
+   * Default: false (metadata is public per SCIM convention).
+   */
+  requireAuthOnMetadata?: boolean;
 }
 
 export function createApp(options: CreateAppOptions = {}): Application {
@@ -42,6 +54,19 @@ export function createApp(options: CreateAppOptions = {}): Application {
     res.setHeader("Content-Type", "application/scim+json; charset=utf-8");
     next();
   });
+
+  // Bearer auth — mounted at /scim/v2 so it protects ALL downstream routes
+  // (including metadata, unless exempted inside the middleware per
+  // okta-dialect.md §9 guidance).
+  app.use(
+    "/scim/v2",
+    bearerAuth({
+      ...(options.authToken !== undefined && { token: options.authToken }),
+      ...(options.requireAuthOnMetadata !== undefined && {
+        requireAuthOnMetadata: options.requireAuthOnMetadata,
+      }),
+    }),
+  );
 
   // Routes. More routers added as endpoints graduate from TDD.
   app.use("/scim/v2", metaRouter);
