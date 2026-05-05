@@ -14,8 +14,10 @@
 import express, { type Application, type NextFunction, type Request, type Response } from "express";
 import { metaRouter } from "./routes/meta.js";
 import { usersRouter } from "./routes/users.js";
+import { healthzRouter } from "./routes/healthz.js";
 import { InMemoryUserStore, type UserStore } from "./store/user-store.js";
 import { bearerAuth } from "./middleware/auth.js";
+import { requestId } from "./middleware/request-id.js";
 
 export interface CreateAppOptions {
   /**
@@ -41,6 +43,10 @@ export function createApp(options: CreateAppOptions = {}): Application {
   const app = express();
   const userStore = options.userStore ?? new InMemoryUserStore();
 
+  // Request-ID first — every downstream log line and response header
+  // can correlate by res.locals.request_id (Connector Law 8 OBSERVABLE).
+  app.use(requestId());
+
   // Accept both content types on POST/PATCH bodies per okta-dialect.md §10.
   app.use(
     express.json({
@@ -49,7 +55,15 @@ export function createApp(options: CreateAppOptions = {}): Application {
     }),
   );
 
-  // Force SCIM content-type on every response per RFC 7644 §3.1.
+  // /healthz is AUTH-EXEMPT so liveness probes + load balancers can reach
+  // it without credentials. Must be mounted BEFORE the bearerAuth middleware.
+  // Returns 200 when the optional store.ping() succeeds (or is absent);
+  // 503 when ping rejects (target unreachable). Content-Type is JSON, NOT
+  // scim+json — this is a connector-level health surface, not a SCIM resource.
+  app.use("/scim/v2", healthzRouter(userStore));
+
+  // Force SCIM content-type on every SCIM response per RFC 7644 §3.1.
+  // Applies AFTER /healthz mount so health responses keep application/json.
   app.use((_req: Request, res: Response, next: NextFunction) => {
     res.setHeader("Content-Type", "application/scim+json; charset=utf-8");
     next();

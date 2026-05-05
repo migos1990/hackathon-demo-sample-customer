@@ -77,10 +77,10 @@ tsx scripts/smoke/cli.ts --connector-url $PROD_CONNECTOR_URL --target-url $PROD_
 Three checks, all must pass:
 
 ```bash
-# 1. Health — connector is alive and can reach its target.
-# (Implemented as part of Day 4-5 observability work; for now use /scim/v2/ServiceProviderConfig as a liveness proxy.)
-curl -sS http://localhost:3002/scim/v2/ServiceProviderConfig | jq .schemas
-# Expected: ["urn:ietf:params:scim:schemas:core:2.0:ServiceProviderConfig"]
+# 1. Health — connector is alive AND can reach its target.
+curl -sS http://localhost:3002/scim/v2/healthz
+# Expected (healthy): {"status":"ok","uptime_seconds":N,"version":"dev","target_reachable":true}
+# Expected (degraded — target unreachable): HTTP 503 with target_error detail.
 
 # 2. Full smoke cycle — provision, deactivate, verify target reflects the deactivation.
 tsx scripts/smoke/cli.ts \
@@ -96,7 +96,7 @@ open http://localhost:4001/admin
 ## Known limitations
 
 - **Groups not yet implemented.** The skeleton and connector handle Users + PATCH + filter; group-push and group_members_patch from the ticket template are future work. Enabling `required_ops.groups: true` on a ticket today will produce a connector that advertises groups in `/ServiceProviderConfig` but rejects actual group operations.
-- **Observability is minimal.** No `/healthz` endpoint yet (Law 8 OBSERVABLE is red). Error logging is stdout-to-console; structured JSON logging is Day 5 work.
+- **Observability scope is limited.** `/healthz` + structured JSON logger + request-id correlation are wired (Law 8 OBSERVABLE green). What's NOT yet here: log shipping to a central store (CloudWatch / Loki / Datadog), metric emission (Prometheus/OTel), and distributed tracing. Those are deployment-shape decisions deferred to the consumer of the harness.
 - **Filter pushdown is absent.** `GET /Users?filter=...` fetches all AcmeHR users and filters in-memory. For a customer app with >10k users, this will be slow. Generated connectors for filter-capable targets should push the filter down to the target API.
 - **Single-node only.** No multi-instance support. A horizontally-scaled deployment would share state via the target app, not the connector — the connector is stateless by design — but the Terraform scaffold assumes one node.
 - **Demo-only auth configuration.** Bearer-token auth is implemented, but key rotation for SCIM_AUTH_TOKEN and ACME_HR_API_TOKEN is manual. Hackathon-scope.

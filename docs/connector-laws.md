@@ -92,11 +92,11 @@ The 14 laws in `AGENTS.md` govern how we BUILD the harness. These 10 **Connector
 Every critical piece ships all three (OBSERVABILITY LAW, scoped to the output).
 
 **Enforced by:**
-- Generated connector skeleton includes these by default (not optional).
-- Post-deploy smoke checks `/healthz` returns 200 before promotion; included in `smoke_test_passed`.
+- Skeleton includes `skeleton/logger.ts` (structured JSON, secret-redacting), `skeleton/middleware/request-id.ts` (safe correlation id with log-forging defense), and `skeleton/routes/healthz.ts` (auth-exempt, optionally probes `store.ping()`). Every generated connector inherits all three by default — see `docs/integrations/observability.md`.
+- Post-deploy smoke indirectly verifies `/healthz` semantics via the SCIM surface; `buildManifest` refuses on log-error-count > 0 (caught by the logger's error level emission).
 - Any behavioral claim in comments about observability is TRUTH-LAW-gated to a test.
 
-**Evidence customer sees:** Live `/healthz` endpoint in pre-prod AND prod. First-5-minutes post-deploy log bundle attached to PR.
+**Evidence customer sees:** Live `/healthz` endpoint in pre-prod AND prod, 200 when target reachable / 503 when degraded. First-5-minutes post-deploy log bundle attached to PR, JSON-parseable with `jq`, zero `Bearer` tokens present (redacted by default).
 
 ### 9. RUNBOOK-COMPLETE — handoff docs match handoff reality
 

@@ -34,6 +34,21 @@ import {
 export class AcmeHrUserStore implements UserStore {
   constructor(private readonly client: AcmeHrClient) {}
 
+  /**
+   * Cheap target-reachability probe for /healthz (Connector Law 8
+   * OBSERVABLE). Rejects if AcmeHR is unreachable; resolves on any
+   * successful list (even empty). Duck-typed — the skeleton's
+   * healthzRouter looks for a `ping` method on the store, calls it
+   * if present, and ignores it otherwise.
+   */
+  async ping(): Promise<void> {
+    // listUsers on AcmeHR-lite is cheap. For a real customer app with
+    // expensive list semantics, generated connectors would hit a
+    // dedicated /ping or HEAD / endpoint instead. Kept simple for the
+    // reference implementation.
+    await this.client.listUsers();
+  }
+
   async create(input: Omit<ScimUser, "id" | "meta">): Promise<StoredUser> {
     const acmeInput = scimToAcmeHrCreate(input);
     try {
