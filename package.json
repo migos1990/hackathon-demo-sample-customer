@@ -14,7 +14,8 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint . --ext .ts",
     "start:skeleton": "tsx skeleton/server.ts",
-    "start:acme-hr": "tsx demo-targets/acme-hr-lite/start.ts"
+    "start:acme-hr": "tsx demo-targets/acme-hr-lite/start.ts",
+    "start:acme-hr-connector": "tsx connectors/acme-hr/start.ts"
   },
   "dependencies": {
     "express": "^4.19.0",
