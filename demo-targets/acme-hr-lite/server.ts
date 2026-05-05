@@ -11,6 +11,7 @@
 import express, { type Application } from "express";
 import { InMemoryAcmeHrStore } from "./store.js";
 import { usersRouter } from "./routes/users.js";
+import { adminRouter } from "./routes/admin.js";
 import { acmeHrAuth } from "./middleware/auth.js";
 
 export interface CreateAcmeHrAppOptions {
@@ -25,6 +26,11 @@ export function createAcmeHrApp(options: CreateAcmeHrAppOptions = {}): Applicati
   const store = options.store ?? new InMemoryAcmeHrStore();
 
   app.use(express.json({ limit: "512kb" }));
+
+  // Admin page is mounted BEFORE the auth middleware so it is auth-exempt.
+  // Rationale in routes/admin.ts header — read-only UI for the demo video.
+  app.use("/admin", adminRouter(store));
+
   app.use(acmeHrAuth({ ...(options.apiToken !== undefined && { apiToken: options.apiToken }) }));
 
   app.use("/users", usersRouter(store));
