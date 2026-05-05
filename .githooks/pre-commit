@@ -94,6 +94,34 @@ if [ -n "$TRUTH_VIOLATIONS" ]; then
 fi
 pass "TRUTH LAW — advisory scan done"
 
+# ─── Connector Laws 7 + 9 — RUNBOOK completeness for connectors/* ──
+# Any staged change under connectors/<slug>/ requires that directory's
+# RUNBOOK.md to pass scripts/runbook-check.ts. Without a compliant runbook,
+# Law 7 (REVERSIBLE — rollback section) and Law 9 (RUNBOOK-COMPLETE) are
+# not enforceable post-hand-off.
+RUNBOOK_VIOLATIONS=""
+if [ -x node_modules/.bin/tsx ]; then
+    CONNECTOR_DIRS=$(echo "$STAGED" | grep -oE '^connectors/[^/]+' | sort -u || true)
+    for dir in $CONNECTOR_DIRS; do
+        [ -d "$dir" ] || continue
+        RUNBOOK="$dir/RUNBOOK.md"
+        if [ ! -f "$RUNBOOK" ]; then
+            RUNBOOK_VIOLATIONS="$RUNBOOK_VIOLATIONS\n  MISSING: $RUNBOOK"
+            continue
+        fi
+        if ! node_modules/.bin/tsx scripts/runbook-check-cli.ts "$RUNBOOK" >/dev/null 2>&1; then
+            # Re-run to capture the error detail for the operator.
+            ERR=$(node_modules/.bin/tsx scripts/runbook-check-cli.ts "$RUNBOOK" 2>&1 || true)
+            RUNBOOK_VIOLATIONS="$RUNBOOK_VIOLATIONS\n$ERR"
+        fi
+    done
+    if [ -n "$RUNBOOK_VIOLATIONS" ]; then
+        echo -e "$RUNBOOK_VIOLATIONS"
+        fail "RUNBOOK check failed — Connector Laws 7 + 9. See docs/connector-laws.md."
+    fi
+    pass "RUNBOOK check — all touched connectors have complete runbooks"
+fi
+
 # ─── PLAN LAW — warn on large diffs without commit-body plan ──
 ADDED=$(git diff --cached --numstat | awk '$1 != "-" {s += $1} END {print s+0}')
 DELETED=$(git diff --cached --numstat | awk '$2 != "-" {s += $2} END {print s+0}')
