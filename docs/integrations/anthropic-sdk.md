@@ -148,6 +148,24 @@ Run all when deploying the orchestrator to any new environment.
 
 ---
 
+## `@anthropic-ai/sdk` quirk: the `/v1` double-path
+
+The official SDK prepends `/v1/messages` to requests internally. If you pass `baseURL: "https://llm.atko.ai/v1"` to the `Anthropic` constructor, every request hits `/v1/v1/messages` and returns 404 `{"detail":"Not Found"}`.
+
+**Our wrapper handles this defensively** — `scripts/llm/anthropic-client.ts` strips a trailing `/v1` before passing to the SDK. Keep the `ANTHROPIC_BASE_URL` env var value as `https://llm.atko.ai/v1` (ergonomic for curl one-liners in this doc); the wrapper takes care of the SDK path semantics.
+
+**If you ever use the SDK directly (bypassing our wrapper):**
+
+```ts
+import Anthropic from "@anthropic-ai/sdk";
+const client = new Anthropic({
+  apiKey: process.env.ANTHROPIC_API_KEY,
+  baseURL: "https://llm.atko.ai",   // NO /v1 — SDK appends it
+});
+```
+
+Live-verified 2026-05-05 via `scripts/llm/live-probe.ts` — all three policy models (`claude-sonnet-4-6`, `claude-opus-4-7`, `claude-haiku-4-5`) round-trip cleanly with first-request latency 1.8s / 2.6s / 7.7s respectively.
+
 ## Known limitations (UNVERIFIED until probed)
 
 - **Prompt caching.** Bedrock-backed endpoint per the `msg_bdrk_*` id prefix — Anthropic's 5-minute prompt-cache TTL may behave differently. Orchestrator code that depends on caching for cost should probe cache-hit behavior explicitly before relying on it.
