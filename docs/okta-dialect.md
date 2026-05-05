@@ -16,6 +16,7 @@ Every load-bearing claim in this doc cites one of:
 - [Okta SCIM concepts](https://developer.okta.com/docs/concepts/scim/) (retrieved 2026-05-04)
 - [Prepare a SCIM API service](https://developer.okta.com/docs/guides/scim-provisioning-integration-prepare/main/) (retrieved 2026-05-04)
 - [Test your SCIM integration](https://developer.okta.com/docs/guides/scim-provisioning-integration-test/main/) (retrieved 2026-05-04)
+- [Okta SCIM 2.0 protocol reference](https://developer.okta.com/docs/api/openapi/okta-scim/guides/scim-20/) (retrieved 2026-05-04) — the authoritative endpoint + payload reference. The old URL at `/docs/reference/scim/scim-20/` redirects here.
 - [Okta SCIM 2.0 SPEC Test suite (JSON)](https://developer.okta.com/standards/SCIM/SCIMFiles/Okta-SCIM-20-SPEC-Test.json) (retrieved 2026-05-04) — THIS IS THE GATE. The 12 Required Tests + 1 Optional Test in this file determine whether a SCIM server is accepted into the OIN. If you pass this, you pass OIN. If you don't, you fail.
 
 **Field confirmation (tribal knowledge from past engagements):**
@@ -75,7 +76,7 @@ Okta's SCIM client emits all four shapes below. The generated server MUST handle
 - Apply ops sequentially, never in parallel.
 - Return `200` with the full updated resource body.
 - For multi-op PATCHes, ALL ops succeed or ALL ops roll back (atomicity — per RFC 7644 §3.5.2 "The server MUST apply all 'Operations' atomically").
-- `[OPEN]` — does Okta ever send multi-op PATCHes in a single call? Fixture on Day 5 will confirm; assume yes and support it.
+- **Multi-op PATCH: YES** — [Okta SCIM 2.0 protocol reference](https://developer.okta.com/docs/api/openapi/okta-scim/guides/scim-20/) shows multi-op examples: `"Operations": [{op: "remove"...}, {op: "add"...}]`. Server MUST handle single and multi-op in the same endpoint. Closes prior `[OPEN]` on this.
 
 ---
 
@@ -117,7 +118,10 @@ This contradicts common customer expectation (most customer apps treat userName 
 - Reject unsupported operators/shapes with `400` + `scimType: "invalidFilter"` per RFC 7644 §3.12.
 - Normalize userName comparisons via the customer-chosen policy (case-sensitive per OIN default, OR case-insensitive with NFC normalization per customer ticket).
 - Log the raw filter string (redacted for PII) for debugging.
-- `[OPEN]` — does Okta send `not`-prefixed filters? Fixture on Day 5.
+- **Okta's documented filter surface is minimal.** The [Okta SCIM 2.0 protocol reference](https://developer.okta.com/docs/api/openapi/okta-scim/guides/scim-20/) only explicitly commits to `eq` — as in `filter=userName eq "{userName}"` and `filter=displayName eq "{groupName}"`. Other operators (`and`, `or`, `not`, `co`, `sw`, `ew`, `gt`, `ge`, `lt`, `le`, `pr`, `ne`) are NOT explicitly documented. Implications:
+  - **OIN minimum:** server MUST support `eq`. Other operators are optional for OIN acceptance.
+  - **Production reality:** field-confirmed sightings of logical AND/OR + complex attribute filters + temporal filters. Implement the full RFC 7644 §3.4.2.2 grammar; don't rely on the doc understatement.
+  - **What's `[OPEN]` even after doc-review:** whether Okta emits `not`-prefixed filters. Not in the docs. Not yet in our fixtures. Capture on Day 5 if observed.
 
 ---
 
@@ -266,7 +270,7 @@ See §4 — zeroing + reactivation creates an empty-user problem. Resolution in 
 
 ### What Okta sends in practice
 
-From the [OIN test suite step 0](https://developer.okta.com/standards/SCIM/SCIMFiles/Okta-SCIM-20-SPEC-Test.json): `GET /Users?count=1&startIndex=1`. Default Okta page size for full imports is 100 per [Okta docs](https://developer.okta.com/docs/guides/scim-provisioning-integration-test/main/) (`[UNVERIFIED — confirm with fixture]`).
+From the [OIN test suite step 0](https://developer.okta.com/standards/SCIM/SCIMFiles/Okta-SCIM-20-SPEC-Test.json): `GET /Users?count=1&startIndex=1`. Default pagination values per the [Okta SCIM 2.0 protocol reference](https://developer.okta.com/docs/api/openapi/okta-scim/guides/scim-20/): **`count: 100` (maximum), `startIndex: 1`** — both documented as integers (NOT strings). Doc-confirmed, closes prior `[UNVERIFIED]`.
 
 ### Code guidance
 
@@ -399,15 +403,26 @@ Concurrent add/remove on the same member; add to a deleted user; add to a non-ex
 
 Multi-op PATCHes applied in parallel or reordered by the server corrupt state. Resolution: §1 sequential atomic application per RFC 7644 §3.5.2.
 
-### 11.5 `[OPEN — tribal knowledge to capture]`
+### 11.5 Closed by Okta docs (SILVER LAW pass, 2026-05-04)
 
-Still to document — add as you encounter/remember:
-- Timezone / timestamp format mismatches between Okta's `meta.lastModified` and the server's emitted timestamps
-- Large-attribute handling (profile photos, long biographies)
-- Schema extension custom attributes — which enterprise-extension fields Okta actually sends in practice
-- Retry/idempotency at the protocol level (if Okta retries a PATCH that succeeded, does the server handle the duplicate gracefully?)
-- Multi-value attribute primary flag behavior (`emails[primary eq true]`)
-- Reserved attribute name collisions between customer source schema and SCIM core
+These items were in v1's [OPEN] list but are now closed by the protocol reference ([/docs/api/openapi/okta-scim/guides/scim-20/](https://developer.okta.com/docs/api/openapi/okta-scim/guides/scim-20/)):
+
+- **Multi-op PATCH** → supported (see §1). Server MUST handle.
+- **Default pagination** → `count: 100`, `startIndex: 1`, integers (see §7).
+- **Filter operators Okta commits to** → only `eq` explicitly (see §2). Everything else is field-observed but NOT a doc-guaranteed emission.
+- **`externalId` semantics** → per the protocol reference, `externalId` contains **the SCIM server's unique identifier for the resource, stored in Okta's user profile**. It is NOT Okta's user ID; it is YOUR server's ID persisted on Okta's side for cross-system correlation. This is important: if your server reassigns IDs on reactivation or migration, Okta's `externalId` drifts and dedup breaks.
+
+### 11.6 `[OPEN — genuinely doc-silent, tribal-knowledge or fixture-bound]`
+
+These remain unknown after a full Okta-docs sweep. Okta's protocol reference + concepts + prepare/test/connect guides do NOT specify any of these. Closing them requires either a past-engagement memory, a real-payload fixture, or an Okta support ticket.
+
+- **Timestamp format in `meta.lastModified`** — RFC 7643 says `xsd:dateTime` (ISO 8601) but Okta doesn't specify fractional-seconds, offset vs `Z`, or timezone-suffix behavior. Default conservatively: emit `YYYY-MM-DDTHH:mm:ssZ` (no fractions, UTC Z).
+- **Large-attribute handling** — profile photos (base64 inline?), long biographies, oversized group member lists. No documented request-size cap. Operational concern, not protocol.
+- **Schema extension custom attributes Okta populates** — protocol ref shows `urn:ietf:params:scim:schemas:core:2.0:User` only. Which `urn:ietf:params:scim:schemas:extension:enterprise:2.0:User` fields (employeeNumber, department, manager, costCenter, organization, division) Okta actually sends in practice, and whether customers configure their own namespaces beyond enterprise — undocumented. Admin-configurable per Okta app setup, not a protocol-level fact.
+- **PATCH retry idempotency** — if Okta retries a PATCH that actually succeeded server-side, does the server's second-call handling stay correct? No Okta guarantee documented. Server should be idempotent-by-design (consumed-on-first-use patterns on stateful ops).
+- **Multi-value `primary` flag behavior** — structure documented (`emails[primary eq true]`), semantics (what happens when you PATCH primary from email A to email B — does A demote? does B promote?) not documented. Field-bound.
+- **Reserved attribute name collisions** — design-level question. No Okta guidance. Resolve per-customer by namespacing custom fields into a schema extension URN rather than the core namespace.
+- **Error `detail` field localization / customer UI leakage** — Okta surfaces `detail` directly in some admin UIs; no doc on safe-content policy. Treat `detail` as customer-facing copy; never include PII or internal stack traces.
 
 ---
 
