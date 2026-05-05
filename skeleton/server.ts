@@ -13,9 +13,21 @@
  */
 import express, { type Application, type NextFunction, type Request, type Response } from "express";
 import { metaRouter } from "./routes/meta.js";
+import { usersRouter } from "./routes/users.js";
+import { InMemoryUserStore, type UserStore } from "./store/user-store.js";
 
-export function createApp(): Application {
+export interface CreateAppOptions {
+  /**
+   * Injected UserStore. Defaults to a fresh InMemoryUserStore per call so
+   * tests can spin up isolated instances. Production uses this hook to
+   * inject a customer-specific backing store (Postgres / LDAP proxy / etc).
+   */
+  userStore?: UserStore;
+}
+
+export function createApp(options: CreateAppOptions = {}): Application {
   const app = express();
+  const userStore = options.userStore ?? new InMemoryUserStore();
 
   // Accept both content types on POST/PATCH bodies per okta-dialect.md §10.
   app.use(
@@ -25,7 +37,7 @@ export function createApp(): Application {
     }),
   );
 
-  // Force SCIM content-type on every 2xx response per RFC 7644 §3.1.
+  // Force SCIM content-type on every response per RFC 7644 §3.1.
   app.use((_req: Request, res: Response, next: NextFunction) => {
     res.setHeader("Content-Type", "application/scim+json; charset=utf-8");
     next();
@@ -33,6 +45,7 @@ export function createApp(): Application {
 
   // Routes. More routers added as endpoints graduate from TDD.
   app.use("/scim/v2", metaRouter);
+  app.use("/scim/v2/Users", usersRouter(userStore));
 
   return app;
 }
