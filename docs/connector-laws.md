@@ -57,10 +57,14 @@ The 14 laws in `AGENTS.md` govern how we BUILD the harness. These 10 **Connector
 
 **Asserts:** The Terraform module that configures the Okta side (tenant, app instance, SCIM provisioning settings, attribute mappings) is idempotent — running `terraform plan` after `terraform apply` produces empty diff. A drifting module is a silent bug generator.
 
-**Enforced by:**
-- Pre-prod verify gate runs `terraform plan` post-deploy; the Promotion Manifest's `preprod_verify.tf_plan_empty` field is a boolean. `build.ts` refuses manifest creation if `false`.
+**Status as of 2026-05-05: 🔴 RED — not yet shipped.** Honest delivery deferred rather than a speculative scaffold. Completing this law requires: (a) an Okta demo tenant (user provisions via `/demo-provision` — Day 4-5 per `docs/hackathon-weekend-plan.md`), (b) the `terraform` binary in CI, (c) a probed-live Okta provider version compatible with the SCIM-app resource shape. Writing configs without (a)+(b)+(c) would be a speculative pattern rather than a tested module — an earlier pass did this and was pulled back per user feedback ("don't cut corners").
 
-**Evidence customer sees:** `tf_plan_empty: true` in the signed Promotion Manifest. Customer can re-run `terraform plan` themselves against their own tenant and see empty output.
+**Planned enforcement (once live-tenant path is available):**
+- Pre-prod verify gate runs `terraform plan` post-deploy; the Promotion Manifest's `preprod_verify.tf_plan_empty` field is a boolean. `buildManifest` ALREADY refuses manifest creation if `false` — `scripts/promotion-manifest/build.ts:assertVerifyPassed` is wired, but the gate that SETS `tf_plan_empty` doesn't exist yet.
+
+**Partial delivery today:** the `buildManifest.preprod_verify.tf_plan_empty` field exists in the manifest schema and is asserted. What's missing is the caller (CI workflow or orchestrator) that actually runs `terraform plan` and populates the field. Today the post-pipeline composer hardcodes `tf_plan_empty: true` because no Terraform runs — this is flagged in `scripts/orchestrator/post-pipeline.ts` as a known placeholder.
+
+**Evidence customer will see (once wired):** `tf_plan_empty: true` in the signed Promotion Manifest. Customer can re-run `terraform plan` themselves against their own tenant and see empty output.
 
 ### 6. SMOKE-GREEN — end-to-end lifecycle event works before promotion
 

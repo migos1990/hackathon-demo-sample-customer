@@ -1,0 +1,171 @@
+# CI workflow — mirrors .githooks/pre-commit so what passes locally
+# passes in CI, and the orchestrator's ci-watcher.ts receives real
+# check_runs to poll on.
+#
+# Every gate in this workflow corresponds to a gate in the pre-commit
+# hook. The single-source-of-truth for gate logic is the script the
+# step invokes (scripts/runbook-check-cli.ts, scripts/dialect-
+# citation-scan-cli.ts, etc.). Both surfaces call the same scripts,
+# so a local green commit IS a CI green PR.
+#
+# Per OBSERVABILITY LAW (Law 5) + GATE LAW (Law 7): every failure
+# mode a reviewer has surfaced becomes a named job here. Adding a
+# new lint goes: (a) write the check as a script, (b) wire it into
+# .githooks/pre-commit, (c) wire it as a job here with matching name.
+# Matching job names let the orchestrator's post-pipeline composer
+# map GitHub check failures back to pre-commit gate names in its
+# Linear comment body.
+
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  vitest:
+    name: vitest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: run tests
+        run: npx vitest run --reporter=default
+
+  typecheck:
+    name: tsc
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - run: npx tsc --noEmit
+
+  secret-scan:
+    name: secret-scan
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2 # need previous commit to diff against for PR changes
+      - name: scan PR diff for secret patterns
+        run: |
+          set -euo pipefail
+          # Mirror of .githooks/pre-commit secret-scan block. We diff
+          # against the PR's base sha to match the pre-commit experience
+          # (staged content) as closely as CI allows.
+          BASE="${{ github.event.pull_request.base.sha || 'HEAD~1' }}"
+          DIFF=$(git diff "$BASE"...HEAD || true)
+
+          # Bearer tokens (>=20 chars base64-ish)
+          if echo "$DIFF" | grep -E '^\+.*Bearer [A-Za-z0-9+/=_-]{20,}' \
+              | grep -v 'Bearer <TOKEN>' | grep -v 'Bearer real-token-12345' \
+              | grep -q .; then
+            echo "::error::Possible bearer token in diff."
+            exit 1
+          fi
+
+          # sk-* API keys (Anthropic, OpenAI, LiteLLM, etc.)
+          if echo "$DIFF" | grep -E '^\+.*\bsk-[A-Za-z0-9_-]{20,}' \
+              | grep -v '<paste' | grep -v '<your' | grep -v 'sk-XXX' \
+              | grep -q .; then
+            echo "::error::Possible sk-* API key in diff."
+            exit 1
+          fi
+
+          # GitHub tokens
+          if echo "$DIFF" | grep -qE '^\+.*\bgh[pousr]_[A-Za-z0-9]{30,}'; then
+            echo "::error::Possible GitHub token in diff."
+            exit 1
+          fi
+
+          # PEM private keys
+          if echo "$DIFF" | grep -qE '^\+.*-----BEGIN [A-Z ]*PRIVATE KEY-----'; then
+            echo "::error::PEM private key in diff."
+            exit 1
+          fi
+
+          # AWS access keys
+          if echo "$DIFF" | grep -qE '^\+.*\b(AKIA|ASIA)[0-9A-Z]{16}\b'; then
+            echo "::error::AWS access key in diff."
+            exit 1
+          fi
+
+          # .env files
+          FILES_CHANGED=$(git diff --name-only "$BASE"...HEAD || true)
+          if echo "$FILES_CHANGED" | grep -E '(^|/)\.env($|\.[^e]|\.e[^x])' \
+              | grep -v '\.env\.example' | grep -q .; then
+            echo "::error::Staged .env file (not .env.example)."
+            exit 1
+          fi
+
+          echo "secret scan: clean"
+
+  dialect-citation:
+    name: dialect-citation (Connector Law 3)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: scan changed skeleton/ + connectors/ .ts files for citations
+        run: |
+          set -euo pipefail
+          BASE="${{ github.event.pull_request.base.sha || 'HEAD~1' }}"
+          CHANGED=$(git diff --name-only "$BASE"...HEAD \
+            | grep -E '^(skeleton|connectors)/' \
+            | grep '\.ts$' \
+            | grep -v '\.test\.ts$' \
+            | tr '\n' ' ' || true)
+          if [ -z "$CHANGED" ]; then
+            echo "no skeleton/ or connectors/ non-test .ts files changed"
+            exit 0
+          fi
+          npx tsx scripts/dialect-citation-scan-cli.ts $CHANGED
+
+  runbook-check:
+    name: runbook-check (Connector Laws 7+9)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+      - run: npm ci
+      - name: verify RUNBOOK.md completeness for touched connectors
+        run: |
+          set -euo pipefail
+          BASE="${{ github.event.pull_request.base.sha || 'HEAD~1' }}"
+          CHANGED_DIRS=$(git diff --name-only "$BASE"...HEAD \
+            | grep -oE '^connectors/[^/]+' \
+            | sort -u || true)
+          if [ -z "$CHANGED_DIRS" ]; then
+            echo "no connectors/ directories touched"
+            exit 0
+          fi
+          for dir in $CHANGED_DIRS; do
+            if [ -d "$dir" ]; then
+              npx tsx scripts/runbook-check-cli.ts "$dir/RUNBOOK.md"
+            fi
+          done

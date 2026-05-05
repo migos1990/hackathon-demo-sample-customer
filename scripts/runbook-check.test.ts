@@ -113,6 +113,60 @@ describe("checkRunbook", () => {
     expect(result.ok).toBe(true);
   });
 
+  it("accepts h2 sections with h3 subheadings as content (agent-generated pattern)", async () => {
+    // Agent-generated RUNBOOKs routinely use this shape — caught as a
+    // false-positive when we ran the checker against examples/generated-
+    // connectors/bigcorp-hr/RUNBOOK.md. The h2 section's h3 subheadings
+    // DO count as content; the h2 is not "empty".
+    const mixed = `# RUNBOOK
+
+## Environment variables
+
+| var | purpose |
+|---|---|
+| X | Y |
+
+## Deployment
+
+### Prerequisites
+
+Bullet one.
+
+### Staging
+
+Bullet two.
+
+## Rollback
+
+### Identifying last good version
+
+Text here.
+
+### Rollback procedure
+
+Steps.
+
+## Smoke + verification
+
+### Health probe
+
+curl.
+
+## Known limitations
+
+- Limit 1
+
+## On-call / escalation
+
+Primary contact.
+`;
+    const path = join(dir, "RUNBOOK.md");
+    await writeFile(path, mixed);
+    const result = await checkRunbook(path);
+    expect(result.ok).toBe(true);
+    expect(result.emptySections).toEqual([]);
+  });
+
   it("reports multiple missing sections at once (surface all defects, not one-at-a-time)", async () => {
     const broken = FULL_RUNBOOK
       .replace("## Rollback", "## X")
