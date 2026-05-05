@@ -44,7 +44,18 @@ export interface LoggerOptions {
   base?: Record<string, unknown>;
 }
 
-const SECRET_HEADER_NAMES = new Set(["authorization", "cookie", "set-cookie", "proxy-authorization"]);
+const SECRET_HEADER_NAMES = new Set([
+  "authorization",
+  "cookie",
+  "set-cookie",
+  "proxy-authorization",
+  // Anthropic + LiteLLM proxy auth header (docs/integrations/anthropic-sdk.md §"Model selection for orchestrator code").
+  "x-api-key",
+  // GitHub API auth
+  "x-github-token",
+  // Linear API auth (future — Linear uses Authorization, but defensive)
+  "x-linear-token",
+]);
 const REDACTED = "[REDACTED]";
 
 export function createLogger(opts: LoggerOptions = {}): Logger {

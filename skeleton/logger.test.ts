@@ -53,6 +53,27 @@ describe("createLogger", () => {
     expect(JSON.parse(lines[0]!).headers.cookie).toBe("[REDACTED]");
   });
 
+  it("redacts x-api-key (Anthropic/LiteLLM proxy auth)", () => {
+    const lines: string[] = [];
+    const log = createLogger({ write: (s) => lines.push(s) });
+    // Fake sk- value assembled at runtime so the test file itself has no literal secret-shaped substring.
+    const fakeKey = "sk" + "-" + "aBcDeFgHiJkLmNoPqRsTuVwXyZ0123";
+    log.info("request", { headers: { "x-api-key": fakeKey } });
+    expect(JSON.parse(lines[0]!).headers["x-api-key"]).toBe("[REDACTED]");
+    // Case-insensitive too — proxies may uppercase it.
+    lines.length = 0;
+    log.info("request", { headers: { "X-API-Key": fakeKey } });
+    expect(JSON.parse(lines[0]!).headers["X-API-Key"]).toBe("[REDACTED]");
+  });
+
+  it("redacts x-github-token headers", () => {
+    const lines: string[] = [];
+    const log = createLogger({ write: (s) => lines.push(s) });
+    const fake = "ghp" + "_" + "abcdefghijklmnopqrstuvwxyz012345";
+    log.info("request", { headers: { "x-github-token": fake } });
+    expect(JSON.parse(lines[0]!).headers["x-github-token"]).toBe("[REDACTED]");
+  });
+
   it("NEVER redacts non-secret fields even if named similarly", () => {
     const lines: string[] = [];
     const log = createLogger({ write: (s) => lines.push(s) });
